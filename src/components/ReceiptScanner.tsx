@@ -103,14 +103,12 @@ function getConfidenceBadge(confidence: number) {
 // ─────────────────────────────────────────────────────────────
 function buildCloudFormData(
   imageFile: File | Blob,
-  deviceId: string | null,
-  session: { token: string } | null
+  deviceId: string | null
 ): FormData {
   const fd = new FormData();
   fd.append('mode', 'cloud');
   fd.append('image', imageFile, 'receipt.jpg');
   if (deviceId) fd.append('deviceId', deviceId);
-  if (session?.token) fd.append('token', session.token);
   return fd;
 }
 
@@ -295,8 +293,7 @@ export function ReceiptScanner() {
         const image = imageFile ?? new Blob([''], { type: 'image/jpeg' });
         const fd = buildCloudFormData(
           image,
-          deviceId,
-          authToken ? { token: authToken } : null
+          deviceId
         );
 
         const headers: Record<string, string> = {};

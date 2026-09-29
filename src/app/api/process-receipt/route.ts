@@ -186,14 +186,12 @@ async function saveReceiptToDb(
   imagePath: string,
   imageBuffer: Buffer,
   imageType: string,
-  imageName: string,
   parsed: ParsedReceipt
 ): Promise<string | null> {
   // Upload image to private storage bucket
-  const path = `${userId}/${Date.now()}-${imageName}`;
   await supabase.storage
     .from('receipt-images')
-    .upload(path, imageBuffer, { contentType: imageType, upsert: false });
+    .upload(imagePath, imageBuffer, { contentType: imageType, upsert: false });
 
   const { data: receipt, error } = await supabase
     .from('receipts')
@@ -384,13 +382,13 @@ export async function POST(request: NextRequest) {
     let savedReceiptId: string | null = null;
 
     if (user) {
+      const imagePath = `${user.id}/${Date.now()}-${imageFile.name}`;
       savedReceiptId = await saveReceiptToDb(
         supabase,
         user.id,
-        `${user.id}/${Date.now()}-${imageFile.name}`,
+        imagePath,
         imageBuffer,
         imageFile.type || 'image/jpeg',
-        imageFile.name,
         parsed
       );
     }
