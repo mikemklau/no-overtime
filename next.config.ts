@@ -1,7 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Static HTML export for Capacitor compatibility
+  output: "export",
+
+  // Disable Next.js image optimization (not available in static export)
+  images: {
+    unoptimized: true,
+  },
 };
 
 export default nextConfig;

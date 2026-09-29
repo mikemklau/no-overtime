@@ -19,8 +19,41 @@
   }
 }
 
+/* ========================================
+   Native App Feel – Capacitor Guardrails
+   ======================================== */
+
+/* Prevent blue tap highlight on iOS/Android WebView */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Prevent accidental text selection across the app */
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+  /* Prevent pull-to-refresh on mobile */
+  overscroll-behavior: none;
+}
+
+/* Allow text selection in form inputs and textareas */
+input,
+textarea,
+[contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Safe area insets for notched devices (iPhone X+, etc.) */
+html {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* Disable long-press context menu on mobile */
+body {
+  -webkit-touch-callout: none;
 }
