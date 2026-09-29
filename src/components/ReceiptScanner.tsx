@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { Device } from '@capacitor/device';
-import { parseReceipt, type ParsedReceipt } from '@/lib/receipt-to-json';
+import { parseReceipt } from '@/lib/receipt-to-json';
 import { exportReceiptsToExcel, type ExportReceiptData } from '@/lib/excel-export';
 import { triggerHaptic } from '@/lib/haptics';
 import { OtpModal } from './OtpModal';
@@ -357,9 +357,10 @@ AUTH: 581903 AID: A000000004`;
           <button
             type="button"
             onClick={handleCameraCapture}
-            className="flex-1 min-w-[200px] h-14 rounded-2xl bg-emerald-600 px-6 text-lg font-bold text-white shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 active:scale-[0.98] transition flex items-center justify-center gap-2"
+            disabled={isProcessing}
+            className="flex-1 min-w-[200px] h-14 rounded-2xl bg-emerald-600 px-6 text-lg font-bold text-white shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 active:scale-[0.98] transition flex items-center justify-center gap-2 disabled:opacity-50"
           >
-            <span>📸 Snap or Upload</span>
+            <span>{isProcessing ? '⏳ Processing...' : '📸 Snap or Upload'}</span>
           </button>
 
           <input

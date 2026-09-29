@@ -1,6 +1,5 @@
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
-import type { ParsedReceipt } from './receipt-to-json';
 
 export interface ExportReceiptData {
   id?: string;
@@ -101,7 +100,7 @@ export async function exportReceiptsToExcel(
     ['Net Business Expenditure', sumNet, currencyFormat],
   ];
 
-  let startRow = 5;
+  const startRow = 5;
   summarySheet.getCell(`B${startRow}`).value = 'Metric';
   summarySheet.getCell(`C${startRow}`).value = 'Value';
   summarySheet.getRow(startRow).font = headerFont;

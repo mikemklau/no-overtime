@@ -102,10 +102,6 @@ const SERVICE_CHARGE_PATTERNS = [
   /\bTIP[\s:£]*(\d+[.,]\d{2})/i,
 ];
 
-const MERCHANT_PATTERNS = [
-  // First non-empty, non-numeric, non-noise line is usually the merchant
-];
-
 // ─────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────

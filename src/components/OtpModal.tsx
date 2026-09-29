@@ -60,7 +60,7 @@ export function OtpModal({
         setStep('token');
         triggerHaptic('light');
       }
-    } catch (err: unknown) {
+    } catch {
       // In dev fallback mode if offline / unconfigured
       setSuccessMsg(`Code sent to ${email} (Demo mode: enter any 6 digits)`);
       setStep('token');
