@@ -1,10 +1,14 @@
 import type { NextConfig } from "next";
 
-const nextConfig: NextConfig = {
-  // Static HTML export for Capacitor compatibility
-  output: "export",
+const isCapacitorBuild = process.env.BUILD_TARGET === "capacitor";
 
-  // Disable Next.js image optimization (not available in static export)
+const nextConfig: NextConfig = {
+  // Static HTML export only for Capacitor builds (mobile shell).
+  // Web deployments (Vercel/Node) need server features for API routes.
+  ...(isCapacitorBuild && { output: "export" }),
+
+  // Disable Next.js image optimization (not available in static export,
+  // and not needed when Capacitor serves images locally)
   images: {
     unoptimized: true,
   },
