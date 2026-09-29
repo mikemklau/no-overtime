@@ -3,8 +3,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { Device } from '@capacitor/device';
-import { parseReceipt } from '@/lib/receipt-to-json';
-import { extractTextFromImage } from '@/lib/tesseract-ocr';
+import { parseReceipt, parseReceiptWithOcrLines } from '@/lib/receipt-to-json';
+import { extractOcrFromImage } from '@/lib/tesseract-ocr';
 import { exportReceiptsToExcel, type ExportReceiptData } from '@/lib/excel-export';
 import { triggerHaptic } from '@/lib/haptics';
 import { OtpModal } from './OtpModal';
@@ -214,7 +214,7 @@ export function ReceiptScanner() {
     []
   );
 
-  // ─── Offline OCR: Tesseract.js → UK regex parser ────────
+  // ─── Offline OCR: Tesseract.js → UK parser with 2D geometry ────────
   const handleFileUpload = useCallback(
     async (file: File) => {
       setIsProcessing(true);
@@ -222,11 +222,26 @@ export function ReceiptScanner() {
       triggerHaptic('light');
 
       try {
-        // Run Tesseract in the browser — no server call, completely offline
-        const rawText = await extractTextFromImage(file, (pct) =>
+        // Run Tesseract in the browser — extract positioned lines with bounding boxes
+        const ocr = await extractOcrFromImage(file, (pct) =>
           setOcrProgress(pct)
         );
-        processText(rawText);
+        const parsed = parseReceiptWithOcrLines(ocr.lines, ocr.text);
+        const entry: ExportReceiptData = {
+          merchantName: parsed.merchantName,
+          receiptDate: parsed.receiptDate,
+          currency: parsed.currency,
+          subtotal: parsed.subtotal,
+          vatAmount: parsed.vatAmount,
+          serviceCharge: parsed.serviceCharge,
+          totalAmount: parsed.totalAmount,
+          confidence: parsed.confidence,
+          status: parsed.confidence >= 90 ? 'verified' : 'needs_review',
+          sourceFile: file,
+          lineItems: parsed.lineItems,
+        };
+        setReceipts((prev) => [entry, ...prev]);
+        triggerHaptic(parsed.confidence >= 90 ? 'success' : 'warning');
       } catch (err) {
         console.error('Offline OCR error:', err);
         triggerHaptic('error');
@@ -237,7 +252,7 @@ export function ReceiptScanner() {
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
     },
-    [processText]
+    []
   );
 
   // ─── Drag & drop ─────────────────────────────────────────
@@ -556,7 +571,7 @@ export function ReceiptScanner() {
                   <button
                     type="button"
                     disabled={isProcessing}
-                    onClick={() => handleEnhanceWithAI(idx)}
+                    onClick={() => handleEnhanceWithAI(idx, r.sourceFile)}
                     className="h-12 w-full md:w-auto rounded-xl border-2 border-emerald-600/30 bg-emerald-50 dark:bg-emerald-950/40 px-5 text-sm font-bold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition flex items-center justify-center gap-2 disabled:opacity-50"
                   >
                     <span>✨ Enhance with Cloud AI (OpenAI Vision)</span>

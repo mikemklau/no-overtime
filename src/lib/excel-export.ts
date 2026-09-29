@@ -12,6 +12,7 @@ export interface ExportReceiptData {
   totalAmount: number | null;
   confidence: number;
   status: string;
+  sourceFile?: File | Blob;
   lineItems: {
     description: string;
     quantity: number;

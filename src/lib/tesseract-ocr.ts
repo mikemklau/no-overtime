@@ -1,28 +1,19 @@
-/**
- * tesseract-ocr.ts
- *
- * Client-side (browser / Capacitor WebView) offline OCR using Tesseract.js.
- * Converts an image File or Blob into raw extracted text without any
- * server round-trip or API key. Free and unlimited.
- *
- * Usage:
- *   const text = await extractTextFromImage(file);
- *   const parsed = parseReceipt(text);
- */
-
 import { createWorker } from 'tesseract.js';
+import type { ReceiptOcrLine } from 'receipt-to-json';
+
+export interface ExtractedOcrData {
+  text: string;
+  lines: ReceiptOcrLine[];
+}
 
 /**
- * Extract raw text from an image using Tesseract.js (offline OCR).
- *
- * @param imageFile - A File or Blob (image/jpeg, image/png, image/webp)
- * @param onProgress - Optional callback receiving a 0–100 progress value
- * @returns Raw extracted text string
+ * Extract rich OCR data (text and positioned lines with bounding boxes)
+ * from an image using Tesseract.js.
  */
-export async function extractTextFromImage(
+export async function extractOcrFromImage(
   imageFile: File | Blob,
   onProgress?: (pct: number) => void
-): Promise<string> {
+): Promise<ExtractedOcrData> {
   const worker = await createWorker('eng', 1, {
     logger: (m) => {
       if (m.status === 'recognizing text' && onProgress) {
@@ -32,12 +23,64 @@ export async function extractTextFromImage(
   });
 
   try {
-    // Convert File / Blob to a URL the worker can read
     const imageUrl = URL.createObjectURL(imageFile);
     const { data } = await worker.recognize(imageUrl);
     URL.revokeObjectURL(imageUrl);
-    return data.text;
+
+    const lines: ReceiptOcrLine[] = [];
+
+    if (data.blocks && data.blocks.length > 0) {
+      for (const block of data.blocks) {
+        for (const paragraph of block.paragraphs) {
+          for (const line of paragraph.lines) {
+            const trimmed = line.text.trim();
+            if (!trimmed) continue;
+            lines.push({
+              text: trimmed,
+              confidence: (line.confidence ?? 85) / 100,
+              index: lines.length,
+              boundingBox: line.bbox
+                ? {
+                    x: line.bbox.x0,
+                    y: line.bbox.y0,
+                    width: line.bbox.x1 - line.bbox.x0,
+                    height: line.bbox.y1 - line.bbox.y0,
+                  }
+                : undefined,
+            });
+          }
+        }
+      }
+    }
+
+    // Fallback if no blocks were returned
+    if (lines.length === 0 && data.text) {
+      const textLines = data.text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+      for (let i = 0; i < textLines.length; i++) {
+        lines.push({
+          text: textLines[i],
+          confidence: (data.confidence ?? 85) / 100,
+          index: i,
+        });
+      }
+    }
+
+    return {
+      text: data.text,
+      lines,
+    };
   } finally {
     await worker.terminate();
   }
+}
+
+/**
+ * Extract raw text from an image using Tesseract.js (offline OCR).
+ */
+export async function extractTextFromImage(
+  imageFile: File | Blob,
+  onProgress?: (pct: number) => void
+): Promise<string> {
+  const ocr = await extractOcrFromImage(imageFile, onProgress);
+  return ocr.text;
 }
