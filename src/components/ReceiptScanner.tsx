@@ -1,16 +1,19 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { Device } from '@capacitor/device';
 import { parseReceipt } from '@/lib/receipt-to-json';
+import { extractTextFromImage } from '@/lib/tesseract-ocr';
 import { exportReceiptsToExcel, type ExportReceiptData } from '@/lib/excel-export';
 import { triggerHaptic } from '@/lib/haptics';
 import { OtpModal } from './OtpModal';
 import { UpgradeModal } from './UpgradeModal';
 import { createClient } from '@/lib/supabase/client';
 
-// Sample UK receipts for zero-friction instant testing
+// ─────────────────────────────────────────────────────────────
+// Sample UK receipts – kept for instant no-image demo testing
+// ─────────────────────────────────────────────────────────────
 const SAMPLE_RECEIPTS = [
   {
     name: 'Pret A Manger (Lunch + VAT)',
@@ -70,10 +73,56 @@ THANK YOU FOR DINING WITH US`,
   },
 ];
 
+// ─────────────────────────────────────────────────────────────
+// Confidence badge helper (DRY – used per receipt card)
+// ─────────────────────────────────────────────────────────────
+function getConfidenceBadge(confidence: number) {
+  if (confidence >= 90) {
+    return {
+      text: '✓ Verified Read',
+      style:
+        'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800',
+    };
+  }
+  if (confidence >= 70) {
+    return {
+      text: '⚠ Check Total',
+      style:
+        'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800',
+    };
+  }
+  return {
+    text: '✕ Needs Attention',
+    style:
+      'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-800',
+  };
+}
+
+// ─────────────────────────────────────────────────────────────
+// Build a full API FormData payload for Cloud AI requests
+// ─────────────────────────────────────────────────────────────
+function buildCloudFormData(
+  imageFile: File | Blob,
+  deviceId: string | null,
+  session: { token: string } | null
+): FormData {
+  const fd = new FormData();
+  fd.append('mode', 'cloud');
+  fd.append('image', imageFile, 'receipt.jpg');
+  if (deviceId) fd.append('deviceId', deviceId);
+  if (session?.token) fd.append('token', session.token);
+  return fd;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Main Component
+// ─────────────────────────────────────────────────────────────
 export function ReceiptScanner() {
   const [receipts, setReceipts] = useState<ExportReceiptData[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [ocrProgress, setOcrProgress] = useState<number | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [authToken, setAuthToken] = useState<string | null>(null);
   const [deviceId, setDeviceId] = useState<string | null>(null);
 
   // Modal controls
@@ -84,103 +133,129 @@ export function ReceiptScanner() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Initialize session & device info
+  // ─── Initialise session & device info on mount ──────────
   useEffect(() => {
     async function init() {
+      // Device ID for unauthenticated quota tracking
       try {
         const idResult = await Device.getId();
         setDeviceId(idResult.identifier);
       } catch {
-        // Fallback for browser
         setDeviceId('browser-dev-session');
       }
 
+      // Restore existing Supabase session
       try {
         const supabase = createClient();
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user?.email) {
           setUserEmail(session.user.email);
+          setAuthToken(session.access_token);
         }
       } catch {
-        // Supabase not yet connected or offline
+        // Supabase not yet connected – offline mode is still fully functional
       }
     }
     init();
   }, []);
 
-  // Process receipt text and add to the active verification list
-  const processText = (text: string) => {
-    setIsProcessing(true);
-    try {
-      const parsed = parseReceipt(text);
-      const newEntry: ExportReceiptData = {
-        merchantName: parsed.merchantName,
-        receiptDate: parsed.receiptDate,
-        currency: parsed.currency,
-        subtotal: parsed.subtotal,
-        vatAmount: parsed.vatAmount,
-        serviceCharge: parsed.serviceCharge,
-        totalAmount: parsed.totalAmount,
-        confidence: parsed.confidence,
-        status: parsed.confidence >= 90 ? 'verified' : 'needs_review',
-        lineItems: parsed.lineItems,
-      };
+  // ─── Process raw OCR text through the UK parser ─────────
+  const processText = useCallback((text: string) => {
+    const parsed = parseReceipt(text);
+    const entry: ExportReceiptData = {
+      merchantName: parsed.merchantName,
+      receiptDate: parsed.receiptDate,
+      currency: parsed.currency,
+      subtotal: parsed.subtotal,
+      vatAmount: parsed.vatAmount,
+      serviceCharge: parsed.serviceCharge,
+      totalAmount: parsed.totalAmount,
+      confidence: parsed.confidence,
+      status: parsed.confidence >= 90 ? 'verified' : 'needs_review',
+      lineItems: parsed.lineItems,
+    };
+    setReceipts((prev) => [entry, ...prev]);
+    triggerHaptic(parsed.confidence >= 90 ? 'success' : 'warning');
+  }, []);
 
-      setReceipts((prev) => [newEntry, ...prev]);
-
-      if (parsed.confidence >= 90) {
-        triggerHaptic('success');
-      } else {
-        triggerHaptic('warning');
+  // ─── Call API and merge real result back into the list ───
+  const applyApiResult = useCallback(
+    (
+      index: number,
+      data: {
+        merchant: string | null;
+        date: string | null;
+        subtotal: number | null;
+        vat: number | null;
+        serviceCharge: number | null;
+        total: number | null;
+        confidence: number;
+        status: string;
+        lineItems: ExportReceiptData['lineItems'];
       }
-    } catch {
-      triggerHaptic('error');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+    ) => {
+      setReceipts((prev) =>
+        prev.map((r, i) =>
+          i === index
+            ? {
+                ...r,
+                merchantName: data.merchant ?? r.merchantName,
+                receiptDate: data.date ?? r.receiptDate,
+                subtotal: data.subtotal ?? r.subtotal,
+                vatAmount: data.vat ?? r.vatAmount,
+                serviceCharge: data.serviceCharge ?? r.serviceCharge,
+                totalAmount: data.total ?? r.totalAmount,
+                confidence: data.confidence,
+                status: data.status,
+                lineItems: data.lineItems?.length ? data.lineItems : r.lineItems,
+              }
+            : r
+        )
+      );
+    },
+    []
+  );
 
-  // Drag and drop handlers
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-  };
+  // ─── Offline OCR: Tesseract.js → UK regex parser ────────
+  const handleFileUpload = useCallback(
+    async (file: File) => {
+      setIsProcessing(true);
+      setOcrProgress(0);
+      triggerHaptic('light');
+
+      try {
+        // Run Tesseract in the browser — no server call, completely offline
+        const rawText = await extractTextFromImage(file, (pct) =>
+          setOcrProgress(pct)
+        );
+        processText(rawText);
+      } catch (err) {
+        console.error('Offline OCR error:', err);
+        triggerHaptic('error');
+      } finally {
+        setIsProcessing(false);
+        setOcrProgress(null);
+        // Reset the file input so the same file can be re-uploaded if needed
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    },
+    [processText]
+  );
+
+  // ─── Drag & drop ─────────────────────────────────────────
+  const handleDragOver = (e: React.DragEvent) => e.preventDefault();
 
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     triggerHaptic('light');
-
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const file = e.dataTransfer.files[0];
-      await handleFileUpload(file);
-    }
+    const file = e.dataTransfer.files?.[0];
+    if (file) await handleFileUpload(file);
   };
 
-  const handleFileUpload = async (file: File) => {
-    setIsProcessing(true);
-    triggerHaptic('light');
-
-    try {
-      // In production, OCR engine (Tesseract or server API) parses the image
-      // Here we simulate instant zero-friction parsing or check if text is available
-      const simulatedText = `RECEIPT: ${file.name.replace(/\.[^/.]+$/, '').toUpperCase()}
-DATE: ${new Date().toLocaleDateString('en-GB')}
-TOTAL £${(Math.random() * 45 + 10).toFixed(2)}
-VAT 20% £${(Math.random() * 8 + 2).toFixed(2)}
-1 x Business Purchase £15.00
-AUTH: 581903 AID: A000000004`;
-
-      processText(simulatedText);
-    } catch {
-      triggerHaptic('error');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  // Mobile Camera Capture via Capacitor Camera
+  // ─── Mobile Camera Capture via Capacitor ─────────────────
   const handleCameraCapture = async () => {
+    triggerHaptic('light');
     try {
-      triggerHaptic('light');
       const photo = await Camera.getPhoto({
         quality: 90,
         allowEditing: false,
@@ -189,95 +264,84 @@ AUTH: 581903 AID: A000000004`;
       });
 
       if (photo.webPath) {
-        processText(SAMPLE_RECEIPTS[0].text);
+        // Fetch the captured image as a Blob then run offline OCR
+        const response = await fetch(photo.webPath);
+        const blob = await response.blob();
+        await handleFileUpload(new File([blob], 'camera-capture.jpg', { type: 'image/jpeg' }));
       }
     } catch {
-      // Fallback: trigger file input on desktop
+      // Desktop fallback: open file picker
       fileInputRef.current?.click();
     }
   };
 
-  // Cloud AI Enhancement Request
-  const handleEnhanceWithAI = async (index: number) => {
-    triggerHaptic('light');
+  // ─── Cloud AI Enhancement ────────────────────────────────
+  const handleEnhanceWithAI = useCallback(
+    async (index: number, imageFile?: File | Blob) => {
+      triggerHaptic('light');
 
-    // Soft auth gate
-    if (!userEmail) {
-      setOtpReason('cloud_ai');
-      setIsOtpOpen(true);
-      return;
-    }
-
-    // Call /api/process-receipt endpoint
-    try {
-      setIsProcessing(true);
-      const formData = new FormData();
-      formData.append('mode', 'cloud');
-      if (deviceId) formData.append('deviceId', deviceId);
-
-      // Create a dummy image blob for simulation
-      const blob = new Blob(['receipt-image-placeholder'], { type: 'image/jpeg' });
-      formData.append('image', blob, 'receipt.jpg');
-      formData.append('rawText', receipts[index]?.merchantName || '');
-
-      const response = await fetch('/api/process-receipt', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (response.status === 403) {
-        const errorData = await response.json();
-        setQuotaInfo({
-          used: errorData.scansUsed || 5,
-          limit: errorData.scansLimit || 5,
-        });
-        setIsUpgradeOpen(true);
-        triggerHaptic('warning');
-        return;
-      }
-
-      if (response.status === 401) {
+      // Soft auth gate
+      if (!userEmail) {
+        setOtpReason('cloud_ai');
         setIsOtpOpen(true);
-        triggerHaptic('warning');
         return;
       }
 
-      const data = await response.json();
-      if (data.success && data.receipt) {
-        // Update item with verified Cloud AI score (98%+)
-        setReceipts((prev) =>
-          prev.map((r, i) =>
-            i === index
-              ? {
-                  ...r,
-                  confidence: 99,
-                  status: 'verified',
-                }
-              : r
-          )
-        );
-        triggerHaptic('success');
-      }
-    } catch {
-      // Simulated enhancement for demo mode
-      setReceipts((prev) =>
-        prev.map((r, i) =>
-          i === index
-            ? {
-                ...r,
-                confidence: 98,
-                status: 'verified',
-              }
-            : r
-        )
-      );
-      triggerHaptic('success');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+      setIsProcessing(true);
 
-  // Excel Export Handler
+      try {
+        // Use the stored file blob for this receipt if available,
+        // otherwise create a minimal placeholder (quota still counted)
+        const image = imageFile ?? new Blob([''], { type: 'image/jpeg' });
+        const fd = buildCloudFormData(
+          image,
+          deviceId,
+          authToken ? { token: authToken } : null
+        );
+
+        const headers: Record<string, string> = {};
+        if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+
+        const response = await fetch('/api/process-receipt', {
+          method: 'POST',
+          headers,
+          body: fd,
+        });
+
+        if (response.status === 403) {
+          const errorData = await response.json();
+          setQuotaInfo({ used: errorData.scansUsed ?? 5, limit: errorData.scansLimit ?? 5 });
+          setIsUpgradeOpen(true);
+          triggerHaptic('warning');
+          return;
+        }
+
+        if (response.status === 401) {
+          setIsOtpOpen(true);
+          triggerHaptic('warning');
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error(`API error ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (data.success && data.receipt) {
+          applyApiResult(index, data.receipt);
+          triggerHaptic('success');
+        }
+      } catch (err) {
+        console.error('Cloud AI error:', err);
+        triggerHaptic('error');
+      } finally {
+        setIsProcessing(false);
+      }
+    },
+    [userEmail, deviceId, authToken, applyApiResult]
+  );
+
+  // ─── Excel Export ─────────────────────────────────────────
   const handleExport = async () => {
     triggerHaptic('light');
 
@@ -286,7 +350,6 @@ AUTH: 581903 AID: A000000004`;
       return;
     }
 
-    // Soft auth gate for export
     if (!userEmail) {
       setOtpReason('export');
       setIsOtpOpen(true);
@@ -302,9 +365,10 @@ AUTH: 581903 AID: A000000004`;
     }
   };
 
+  // ─── Render ───────────────────────────────────────────────
   return (
     <div className="flex flex-col flex-1 w-full max-w-4xl mx-auto px-4 py-6 pb-32">
-      {/* Top Header Bar */}
+      {/* Header */}
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl md:text-3xl font-black text-foreground tracking-tight">
@@ -317,17 +381,14 @@ AUTH: 581903 AID: A000000004`;
 
         {userEmail ? (
           <div className="flex items-center gap-2 rounded-full bg-emerald-100 dark:bg-emerald-950/60 px-4 py-1.5 border border-emerald-300 dark:border-emerald-800">
-            <span className="h-2.5 w-2.5 rounded-full bg-emerald-600"></span>
+            <span className="h-2.5 w-2.5 rounded-full bg-emerald-600" />
             <span className="text-xs md:text-sm font-bold text-emerald-900 dark:text-emerald-200">
               {userEmail}
             </span>
           </div>
         ) : (
           <button
-            onClick={() => {
-              setOtpReason('cloud_ai');
-              setIsOtpOpen(true);
-            }}
+            onClick={() => { setOtpReason('cloud_ai'); setIsOtpOpen(true); }}
             className="rounded-full bg-zinc-100 dark:bg-zinc-800 px-4 py-2 text-xs md:text-sm font-bold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition"
           >
             Sign In with Email OTP
@@ -349,11 +410,26 @@ AUTH: 581903 AID: A000000004`;
           Drag & Drop Receipts Here
         </h2>
         <p className="text-sm md:text-base text-zinc-600 dark:text-zinc-400 mb-6 max-w-md">
-          Drop photos, invoices, or thermal receipts. Instant offline parsing — no signup required to start!
+          Drop photos or invoices. Free offline OCR runs instantly in your browser — no signup required!
         </p>
 
+        {/* OCR progress bar */}
+        {ocrProgress !== null && (
+          <div className="w-full max-w-xs mb-4">
+            <div className="flex justify-between text-xs font-bold text-zinc-500 mb-1">
+              <span>Reading document...</span>
+              <span>{ocrProgress}%</span>
+            </div>
+            <div className="h-2 w-full rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-emerald-500 transition-all duration-300"
+                style={{ width: `${ocrProgress}%` }}
+              />
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-wrap gap-3 justify-center w-full max-w-md">
-          {/* Primary Action Button: Min height 56px (h-14) */}
           <button
             type="button"
             onClick={handleCameraCapture}
@@ -369,12 +445,12 @@ AUTH: 581903 AID: A000000004`;
             onChange={(e) => {
               if (e.target.files?.[0]) handleFileUpload(e.target.files[0]);
             }}
-            accept="image/*,.pdf"
+            accept="image/*"
             className="hidden"
           />
         </div>
 
-        {/* Quick Sample Receipts for Boomer-Proof Instant Testing */}
+        {/* Sample receipts for demo testing */}
         <div className="mt-6 flex flex-col items-center">
           <span className="text-xs font-bold uppercase tracking-wider text-zinc-500 mb-2">
             Or try instant UK test receipts:
@@ -384,10 +460,7 @@ AUTH: 581903 AID: A000000004`;
               <button
                 key={idx}
                 type="button"
-                onClick={() => {
-                  triggerHaptic('light');
-                  processText(sample.text);
-                }}
+                onClick={() => { triggerHaptic('light'); processText(sample.text); }}
                 className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3.5 py-2 text-xs font-bold text-zinc-700 dark:text-zinc-300 hover:border-emerald-500 hover:text-emerald-600 dark:hover:text-emerald-400 transition"
               >
                 + {sample.name}
@@ -397,7 +470,7 @@ AUTH: 581903 AID: A000000004`;
         </div>
       </div>
 
-      {/* Receipts List with Boomer-Proof Massive Text & Badges */}
+      {/* Receipt Cards */}
       <div className="mt-8 space-y-4">
         <div className="flex justify-between items-center px-1">
           <h2 className="text-lg md:text-xl font-black text-foreground">
@@ -405,10 +478,7 @@ AUTH: 581903 AID: A000000004`;
           </h2>
           {receipts.length > 0 && (
             <button
-              onClick={() => {
-                triggerHaptic('light');
-                setReceipts([]);
-              }}
+              onClick={() => { triggerHaptic('light'); setReceipts([]); }}
               className="text-xs font-bold text-rose-600 hover:underline"
             >
               Clear All
@@ -422,27 +492,13 @@ AUTH: 581903 AID: A000000004`;
           </div>
         ) : (
           receipts.map((r, idx) => {
-            // Confidence Badge Styling as per MASTER_SPEC
-            let badgeText = '✕ Needs Attention';
-            let badgeStyle =
-              'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-800';
-
-            if (r.confidence >= 90) {
-              badgeText = '✓ Verified Read';
-              badgeStyle =
-                'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800';
-            } else if (r.confidence >= 70) {
-              badgeText = '⚠ Check Total';
-              badgeStyle =
-                'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800';
-            }
-
+            const badge = getConfidenceBadge(r.confidence);
             return (
               <div
                 key={idx}
                 className="rounded-3xl border-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 md:p-6 shadow-sm transition hover:shadow-md"
               >
-                {/* Top Row: Merchant + Badge */}
+                {/* Merchant + Badge */}
                 <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
                   <div>
                     <span className="text-xs font-bold text-zinc-500 uppercase tracking-wider">
@@ -452,81 +508,59 @@ AUTH: 581903 AID: A000000004`;
                       {r.merchantName || 'Unknown Merchant'}
                     </h3>
                   </div>
-
-                  <span
-                    className={`inline-flex items-center rounded-xl border px-3.5 py-1.5 text-xs md:text-sm font-black tracking-wide ${badgeStyle}`}
-                  >
-                    {badgeText} ({r.confidence}%)
+                  <span className={`inline-flex items-center rounded-xl border px-3.5 py-1.5 text-xs md:text-sm font-black tracking-wide ${badge.style}`}>
+                    {badge.text} ({r.confidence}%)
                   </span>
                 </div>
 
-                {/* Massive Financial Numbers (Boomer-Proof) */}
+                {/* Boomer-proof massive numbers */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 rounded-2xl bg-zinc-50 dark:bg-zinc-800/50 mb-4">
                   <div>
-                    <span className="text-xs font-bold text-zinc-500 uppercase">
-                      Total (GBP)
-                    </span>
+                    <span className="text-xs font-bold text-zinc-500 uppercase">Total (GBP)</span>
                     <p className="text-3xl md:text-4xl font-black text-foreground">
                       £{(r.totalAmount ?? 0).toFixed(2)}
                     </p>
                   </div>
-
                   <div>
-                    <span className="text-xs font-bold text-zinc-500 uppercase">
-                      UK 20% VAT
-                    </span>
+                    <span className="text-xs font-bold text-zinc-500 uppercase">UK 20% VAT</span>
                     <p className="text-2xl md:text-3xl font-black text-emerald-600 dark:text-emerald-400">
                       £{(r.vatAmount ?? 0).toFixed(2)}
                     </p>
                   </div>
-
                   <div>
-                    <span className="text-xs font-bold text-zinc-500 uppercase">
-                      Net Subtotal
-                    </span>
+                    <span className="text-xs font-bold text-zinc-500 uppercase">Net Subtotal</span>
                     <p className="text-xl md:text-2xl font-bold text-zinc-700 dark:text-zinc-300">
                       £{(r.subtotal ?? 0).toFixed(2)}
                     </p>
                   </div>
-
                   <div>
-                    <span className="text-xs font-bold text-zinc-500 uppercase">
-                      Service Charge
-                    </span>
+                    <span className="text-xs font-bold text-zinc-500 uppercase">Service Charge</span>
                     <p className="text-xl md:text-2xl font-bold text-zinc-700 dark:text-zinc-300">
                       £{(r.serviceCharge ?? 0).toFixed(2)}
                     </p>
                   </div>
                 </div>
 
-                {/* Line Items Preview */}
+                {/* Line Items */}
                 {r.lineItems && r.lineItems.length > 0 && (
                   <div className="mb-4 space-y-1 text-sm border-t border-zinc-100 dark:border-zinc-800 pt-3">
-                    <span className="text-xs font-bold uppercase text-zinc-400">
-                      Line Items:
-                    </span>
+                    <span className="text-xs font-bold uppercase text-zinc-400">Line Items:</span>
                     {r.lineItems.map((item, iIdx) => (
-                      <div
-                        key={iIdx}
-                        className="flex justify-between text-zinc-700 dark:text-zinc-300 font-medium"
-                      >
-                        <span>
-                          {item.quantity}x {item.description}
-                        </span>
-                        <span className="font-bold">
-                          £{item.totalPrice.toFixed(2)}
-                        </span>
+                      <div key={iIdx} className="flex justify-between text-zinc-700 dark:text-zinc-300 font-medium">
+                        <span>{item.quantity}x {item.description}</span>
+                        <span className="font-bold">£{item.totalPrice.toFixed(2)}</span>
                       </div>
                     ))}
                   </div>
                 )}
 
-                {/* Card Action: Enhance with Cloud AI */}
+                {/* Cloud AI Enhancement button */}
                 {r.confidence < 95 && (
                   <button
                     type="button"
+                    disabled={isProcessing}
                     onClick={() => handleEnhanceWithAI(idx)}
-                    className="h-12 w-full md:w-auto rounded-xl border-2 border-emerald-600/30 bg-emerald-50 dark:bg-emerald-950/40 px-5 text-sm font-bold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition flex items-center justify-center gap-2"
+                    className="h-12 w-full md:w-auto rounded-xl border-2 border-emerald-600/30 bg-emerald-50 dark:bg-emerald-950/40 px-5 text-sm font-bold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition flex items-center justify-center gap-2 disabled:opacity-50"
                   >
                     <span>✨ Enhance with Cloud AI (OpenAI Vision)</span>
                   </button>
@@ -537,18 +571,15 @@ AUTH: 581903 AID: A000000004`;
         )}
       </div>
 
-      {/* Large Sticky Bottom Bar: 'Download Excel Spreadsheet' */}
+      {/* Sticky Bottom Excel Export Bar */}
       <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md border-t border-zinc-200 dark:border-zinc-800 p-4 shadow-2xl">
         <div className="max-w-4xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="hidden md:block">
-            <p className="text-sm font-bold text-foreground">
-              Ready for HMRC Filing
-            </p>
+            <p className="text-sm font-bold text-foreground">Ready for HMRC Filing</p>
             <p className="text-xs text-zinc-500">
               {receipts.length} receipt{receipts.length === 1 ? '' : 's'} staged with VAT breakdown formulas
             </p>
           </div>
-
           <button
             type="button"
             onClick={handleExport}
@@ -567,9 +598,7 @@ AUTH: 581903 AID: A000000004`;
         reason={otpReason}
         onSuccess={(email) => {
           setUserEmail(email);
-          if (otpReason === 'export') {
-            exportReceiptsToExcel(receipts);
-          }
+          if (otpReason === 'export') exportReceiptsToExcel(receipts);
         }}
       />
 
