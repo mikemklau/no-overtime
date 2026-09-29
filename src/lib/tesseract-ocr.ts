@@ -7,6 +7,95 @@ export interface ExtractedOcrData {
 }
 
 /**
+ * Preprocess an image on a hidden canvas before running OCR:
+ * 1. Upscales low-resolution screen captures so text characters are at least 25-35px tall.
+ * 2. Applies grayscale luminance and contrast stretching to eliminate anti-aliasing artifacts on digital screenshots.
+ */
+async function preprocessImageForOcr(
+  imageFile: File | Blob
+): Promise<{ source: HTMLCanvasElement | string; scale: number; cleanup?: () => void }> {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    const url = URL.createObjectURL(imageFile);
+    return { source: url, scale: 1, cleanup: () => URL.revokeObjectURL(url) };
+  }
+
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(imageFile);
+    const img = new Image();
+
+    img.onload = () => {
+      try {
+        const originalWidth = img.naturalWidth || img.width;
+        const originalHeight = img.naturalHeight || img.height;
+
+        // Target: standard OCR resolution is ~2200px max dimension.
+        // If the image is smaller (like a 1024x550 screenshot), upscale up to 2.5x.
+        const maxDim = Math.max(originalWidth, originalHeight);
+        let scale = 1;
+        if (maxDim < 2000) {
+          scale = Math.min(2.5, Math.max(1.5, 2200 / maxDim));
+        }
+
+        const canvas = document.createElement('canvas');
+        const targetWidth = Math.round(originalWidth * scale);
+        const targetHeight = Math.round(originalHeight * scale);
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve({ source: url, scale: 1, cleanup: () => URL.revokeObjectURL(url) });
+          return;
+        }
+
+        // Draw upscaled with high quality image smoothing
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+
+        // Preprocessing: Grayscale & Contrast Stretching
+        const imgData = ctx.getImageData(0, 0, targetWidth, targetHeight);
+        const d = imgData.data;
+
+        for (let i = 0; i < d.length; i += 4) {
+          // Grayscale luminance
+          const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+
+          // Contrast stretch: push light backgrounds (>195) to pure white (255)
+          // and darken faint anti-aliased text (<145)
+          let enhanced: number;
+          if (gray >= 195) {
+            enhanced = 255;
+          } else if (gray <= 145) {
+            enhanced = Math.max(0, gray * 0.7);
+          } else {
+            // Linear ramp in the transition zone
+            enhanced = ((gray - 145) / 50) * 255;
+          }
+
+          d[i] = enhanced;
+          d[i + 1] = enhanced;
+          d[i + 2] = enhanced;
+        }
+
+        ctx.putImageData(imgData, 0, 0);
+        URL.revokeObjectURL(url);
+        resolve({ source: canvas, scale });
+      } catch (err) {
+        console.warn('Canvas preprocessing fallback:', err);
+        resolve({ source: url, scale: 1, cleanup: () => URL.revokeObjectURL(url) });
+      }
+    };
+
+    img.onerror = () => {
+      resolve({ source: url, scale: 1, cleanup: () => URL.revokeObjectURL(url) });
+    };
+
+    img.src = url;
+  });
+}
+
+/**
  * Extract rich OCR data (text and positioned lines with bounding boxes)
  * from an image using Tesseract.js.
  */
@@ -22,10 +111,10 @@ export async function extractOcrFromImage(
     },
   });
 
+  const { source, scale, cleanup } = await preprocessImageForOcr(imageFile);
+
   try {
-    const imageUrl = URL.createObjectURL(imageFile);
-    const { data } = await worker.recognize(imageUrl);
-    URL.revokeObjectURL(imageUrl);
+    const { data } = await worker.recognize(source);
 
     const lines: ReceiptOcrLine[] = [];
 
@@ -41,10 +130,10 @@ export async function extractOcrFromImage(
               index: lines.length,
               boundingBox: line.bbox
                 ? {
-                    x: line.bbox.x0,
-                    y: line.bbox.y0,
-                    width: line.bbox.x1 - line.bbox.x0,
-                    height: line.bbox.y1 - line.bbox.y0,
+                    x: line.bbox.x0 / scale,
+                    y: line.bbox.y0 / scale,
+                    width: (line.bbox.x1 - line.bbox.x0) / scale,
+                    height: (line.bbox.y1 - line.bbox.y0) / scale,
                   }
                 : undefined,
             });
@@ -70,6 +159,7 @@ export async function extractOcrFromImage(
       lines,
     };
   } finally {
+    if (cleanup) cleanup();
     await worker.terminate();
   }
 }

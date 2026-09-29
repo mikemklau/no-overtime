@@ -508,7 +508,7 @@ export function ReceiptScanner() {
             return (
               <div
                 key={idx}
-                className="rounded-3xl border-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 md:p-6 shadow-sm transition hover:shadow-md"
+                className="rounded-3xl border-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 md:p-6 shadow-sm transition hover:shadow-md select-text"
               >
                 {/* Merchant + Badge */}
                 <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
