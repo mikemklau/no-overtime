@@ -11,6 +11,7 @@ interface ReceiptCardProps {
   receipt: ExportReceiptData;
   index: number;
   isProcessing: boolean;
+  scanMode?: 'essentials' | 'detailed';
   onUpdate: (index: number, updated: ExportReceiptData) => void;
   onDelete: (index: number) => void;
   onEnhanceWithAI: (index: number, imageFile?: File | Blob) => void;
@@ -24,7 +25,8 @@ type EditingField = null | 'merchantName' | 'receiptDate' | 'totalAmount' | 'vat
 function getConfidenceBadge(
   confidence: number,
   userVerified: boolean,
-  essentialsConfidence?: number
+  essentialsConfidence?: number,
+  scanMode: 'essentials' | 'detailed' = 'essentials'
 ) {
   if (userVerified) {
     return {
@@ -35,30 +37,50 @@ function getConfidenceBadge(
     };
   }
 
-  // If essentials (totals, VAT, merchant, date) are >= 90%, it's ready for UK HMRC accounting even if line items were noisy
-  if (essentialsConfidence !== undefined && essentialsConfidence >= 90 && confidence < 90) {
+  // When in HMRC Essentials mode: evaluate strictly on Supplier, Date, Totals and VAT
+  if (scanMode === 'essentials') {
+    const score = essentialsConfidence ?? confidence;
+    if (score >= 90) {
+      return {
+        text: '✓ HMRC Ready',
+        score,
+        subText: `Items: ${confidence}%`,
+        style:
+          'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800',
+      };
+    }
+    if (score >= 70) {
+      return {
+        text: '⚠ Check Total',
+        score,
+        subText: `Items: ${confidence}%`,
+        style:
+          'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800',
+      };
+    }
     return {
-      text: '✓ HMRC Ready',
-      score: essentialsConfidence,
-      subText: `Items: ${confidence}%`,
+      text: '✕ Needs Attention',
+      score,
       style:
-        'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800',
+        'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-800',
     };
   }
 
+  // Detailed mode: evaluate all lines including individual items
   if (confidence >= 90) {
     return {
       text: '✓ Verified Read',
       score: confidence,
+      subText: essentialsConfidence ? `HMRC: ${essentialsConfidence}%` : undefined,
       style:
         'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800',
     };
   }
-  if (confidence >= 70 || (essentialsConfidence !== undefined && essentialsConfidence >= 75)) {
-    const displayScore = Math.max(confidence, essentialsConfidence ?? 0);
+  if (confidence >= 70) {
     return {
       text: '⚠ Check Total',
-      score: displayScore,
+      score: confidence,
+      subText: essentialsConfidence ? `HMRC: ${essentialsConfidence}%` : undefined,
       style:
         'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800',
     };
@@ -147,10 +169,14 @@ export function ReceiptCard({
   receipt,
   index,
   isProcessing,
+  scanMode = 'essentials',
   onUpdate,
   onDelete,
   onEnhanceWithAI,
 }: ReceiptCardProps) {
+  const [localMode, setLocalMode] = useState<'essentials' | 'detailed' | null>(null);
+  const activeMode = localMode ?? scanMode;
+  const [showLineItems, setShowLineItems] = useState(true);
   const [editingField, setEditingField] = useState<EditingField>(null);
   const [editingLineItem, setEditingLineItem] = useState<{
     lineIdx: number;
@@ -242,7 +268,7 @@ export function ReceiptCard({
 
   const r = receipt;
   const userVerified = r.status === 'user_verified';
-  const badge = getConfidenceBadge(r.confidence, userVerified, r.essentialsConfidence);
+  const badge = getConfidenceBadge(r.confidence, userVerified, r.essentialsConfidence, activeMode);
 
   // ─── Object URL for Original Image ─────────────────────────
   useEffect(() => {
@@ -537,19 +563,26 @@ export function ReceiptCard({
             <span>{showOriginal ? '✕ Hide Scan' : '📄 View Original'}</span>
           </button>
 
-          <div className="flex flex-col items-end">
+          <button
+            type="button"
+            onClick={() => {
+              setLocalMode(activeMode === 'essentials' ? 'detailed' : 'essentials');
+              triggerHaptic('light');
+            }}
+            className="flex flex-col items-end cursor-pointer group text-left transition active:scale-95"
+            title={`Current view: ${activeMode === 'essentials' ? 'HMRC Essentials' : 'Detailed Items'}. Click to toggle.`}
+          >
             <span
-              className={`inline-flex items-center rounded-xl border px-3 py-1 text-xs md:text-sm font-black tracking-wide ${badge.style}`}
-              title={badge.subText ? `Accounting essentials: ${badge.score}% | Line items: ${r.confidence}%` : undefined}
+              className={`inline-flex items-center rounded-xl border px-3 py-1 text-xs md:text-sm font-black tracking-wide transition group-hover:shadow-sm ${badge.style}`}
             >
               {badge.text} ({badge.score}%)
             </span>
             {badge.subText && (
-              <span className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 mt-0.5 mr-1">
-                {badge.subText} (Optional)
+              <span className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 mt-0.5 mr-1 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition">
+                {badge.subText} (Click to switch)
               </span>
             )}
-          </div>
+          </button>
 
           <button
             type="button"
@@ -676,9 +709,27 @@ export function ReceiptCard({
           {/* Line Items (Editable) */}
           <div className="mb-4 space-y-1 text-sm border-t border-zinc-100 dark:border-zinc-800 pt-3">
             <div className="flex justify-between items-center mb-2">
-              <span className="text-xs font-bold uppercase text-zinc-400">
-                Line Items <span className="text-[10px] font-normal lowercase tracking-normal text-zinc-400 dark:text-zinc-500">(optional for HMRC)</span>:
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold uppercase text-zinc-400">
+                  Line Items{' '}
+                  <span className="text-[10px] font-normal lowercase tracking-normal text-zinc-400 dark:text-zinc-500">
+                    ({activeMode === 'essentials' ? 'optional for HMRC' : `${r.lineItems?.length || 0} items`})
+                  </span>
+                  :
+                </span>
+                {(r.lineItems?.length || 0) > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowLineItems((prev) => !prev);
+                      triggerHaptic('light');
+                    }}
+                    className="text-[11px] font-bold text-zinc-500 hover:text-emerald-600 dark:hover:text-emerald-400 transition underline"
+                  >
+                    {showLineItems ? 'Hide Items' : `Show (${r.lineItems.length})`}
+                  </button>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={handleAddLineItem}
@@ -687,106 +738,108 @@ export function ReceiptCard({
                 + Add Item
               </button>
             </div>
-            {r.lineItems && r.lineItems.length > 0 ? (
-              r.lineItems.map((item, iIdx) => (
-                <div
-                  key={iIdx}
-                  className="flex items-center justify-between gap-2 text-zinc-700 dark:text-zinc-300 font-medium group"
-                >
-                  <div className="flex items-center gap-1 flex-1 min-w-0">
-                    {/* Editable Quantity */}
-                    {editingLineItem?.lineIdx === iIdx &&
-                    editingLineItem?.field === 'quantity' ? (
-                      <input
-                        type="number"
-                        value={lineItemDraft}
-                        onChange={(e) => setLineItemDraft(e.target.value)}
-                        onBlur={commitLineItemEdit}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') commitLineItemEdit();
-                          if (e.key === 'Escape') setEditingLineItem(null);
-                        }}
-                        autoFocus
-                        className="w-10 bg-white dark:bg-zinc-800 border-2 border-emerald-500 rounded px-1 text-center outline-none"
-                      />
-                    ) : (
-                      <span
-                        onClick={() => startLineItemEdit(iIdx, 'quantity')}
-                        className="cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded px-1 transition"
-                        title="Click to edit quantity"
-                      >
-                        {item.quantity}x
-                      </span>
-                    )}
+            {showLineItems && (
+              r.lineItems && r.lineItems.length > 0 ? (
+                r.lineItems.map((item, iIdx) => (
+                  <div
+                    key={iIdx}
+                    className="flex items-center justify-between gap-2 text-zinc-700 dark:text-zinc-300 font-medium group"
+                  >
+                    <div className="flex items-center gap-1 flex-1 min-w-0">
+                      {/* Editable Quantity */}
+                      {editingLineItem?.lineIdx === iIdx &&
+                      editingLineItem?.field === 'quantity' ? (
+                        <input
+                          type="number"
+                          value={lineItemDraft}
+                          onChange={(e) => setLineItemDraft(e.target.value)}
+                          onBlur={commitLineItemEdit}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') commitLineItemEdit();
+                            if (e.key === 'Escape') setEditingLineItem(null);
+                          }}
+                          autoFocus
+                          className="w-10 bg-white dark:bg-zinc-800 border-2 border-emerald-500 rounded px-1 text-center outline-none"
+                        />
+                      ) : (
+                        <span
+                          onClick={() => startLineItemEdit(iIdx, 'quantity')}
+                          className="cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded px-1 transition"
+                          title="Click to edit quantity"
+                        >
+                          {item.quantity}x
+                        </span>
+                      )}
 
-                    {/* Editable Description */}
-                    {editingLineItem?.lineIdx === iIdx &&
-                    editingLineItem?.field === 'description' ? (
-                      <input
-                        type="text"
-                        value={lineItemDraft}
-                        onChange={(e) => setLineItemDraft(e.target.value)}
-                        onBlur={commitLineItemEdit}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') commitLineItemEdit();
-                          if (e.key === 'Escape') setEditingLineItem(null);
-                        }}
-                        autoFocus
-                        className="flex-1 bg-white dark:bg-zinc-800 border-2 border-emerald-500 rounded px-2 outline-none"
-                      />
-                    ) : (
-                      <span
-                        onClick={() => startLineItemEdit(iIdx, 'description')}
-                        className="cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded px-1 truncate transition"
-                        title="Click to edit description"
+                      {/* Editable Description */}
+                      {editingLineItem?.lineIdx === iIdx &&
+                      editingLineItem?.field === 'description' ? (
+                        <input
+                          type="text"
+                          value={lineItemDraft}
+                          onChange={(e) => setLineItemDraft(e.target.value)}
+                          onBlur={commitLineItemEdit}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') commitLineItemEdit();
+                            if (e.key === 'Escape') setEditingLineItem(null);
+                          }}
+                          autoFocus
+                          className="flex-1 bg-white dark:bg-zinc-800 border-2 border-emerald-500 rounded px-2 outline-none"
+                        />
+                      ) : (
+                        <span
+                          onClick={() => startLineItemEdit(iIdx, 'description')}
+                          className="cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded px-1 truncate transition"
+                          title="Click to edit description"
+                        >
+                          {item.description}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      {/* Editable Price */}
+                      {editingLineItem?.lineIdx === iIdx &&
+                      editingLineItem?.field === 'totalPrice' ? (
+                        <input
+                          type="number"
+                          value={lineItemDraft}
+                          onChange={(e) => setLineItemDraft(e.target.value)}
+                          onBlur={commitLineItemEdit}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') commitLineItemEdit();
+                            if (e.key === 'Escape') setEditingLineItem(null);
+                          }}
+                          autoFocus
+                          className="w-24 bg-white dark:bg-zinc-800 border-2 border-emerald-500 rounded px-2 text-right outline-none"
+                        />
+                      ) : (
+                        <span
+                          onClick={() => startLineItemEdit(iIdx, 'totalPrice')}
+                          className="font-bold cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded px-1 transition"
+                          title="Click to edit price"
+                        >
+                          £{item.totalPrice.toFixed(2)}
+                        </span>
+                      )}
+
+                      {/* Delete Line Item */}
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteLineItem(iIdx)}
+                        className="opacity-0 group-hover:opacity-100 h-6 w-6 rounded flex items-center justify-center text-zinc-400 hover:text-rose-500 transition text-xs"
+                        title="Remove item"
                       >
-                        {item.description}
-                      </span>
-                    )}
+                        ✕
+                      </button>
+                    </div>
                   </div>
-
-                  <div className="flex items-center gap-1 shrink-0">
-                    {/* Editable Price */}
-                    {editingLineItem?.lineIdx === iIdx &&
-                    editingLineItem?.field === 'totalPrice' ? (
-                      <input
-                        type="number"
-                        value={lineItemDraft}
-                        onChange={(e) => setLineItemDraft(e.target.value)}
-                        onBlur={commitLineItemEdit}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') commitLineItemEdit();
-                          if (e.key === 'Escape') setEditingLineItem(null);
-                        }}
-                        autoFocus
-                        className="w-24 bg-white dark:bg-zinc-800 border-2 border-emerald-500 rounded px-2 text-right outline-none"
-                      />
-                    ) : (
-                      <span
-                        onClick={() => startLineItemEdit(iIdx, 'totalPrice')}
-                        className="font-bold cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded px-1 transition"
-                        title="Click to edit price"
-                      >
-                        £{item.totalPrice.toFixed(2)}
-                      </span>
-                    )}
-
-                    {/* Delete Line Item */}
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteLineItem(iIdx)}
-                      className="opacity-0 group-hover:opacity-100 h-6 w-6 rounded flex items-center justify-center text-zinc-400 hover:text-rose-500 transition text-xs"
-                      title="Remove item"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="text-xs text-zinc-400 italic">
-                No line items detected. Click &quot;+ Add Item&quot; to add manually.
-              </p>
+                ))
+              ) : (
+                <p className="text-xs text-zinc-400 italic">
+                  No line items detected. Click &quot;+ Add Item&quot; to add manually.
+                </p>
+              )
             )}
           </div>
 

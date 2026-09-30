@@ -97,6 +97,7 @@ export function ReceiptScanner() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [ocrProgress, setOcrProgress] = useState<number | null>(null);
   const [ocrStatusText, setOcrStatusText] = useState<string | null>(null);
+  const [scanMode, setScanMode] = useState<'essentials' | 'detailed'>('essentials');
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [deviceId, setDeviceId] = useState<string | null>(null);
@@ -405,7 +406,7 @@ export function ReceiptScanner() {
   return (
     <div className="flex flex-col flex-1 w-full max-w-5xl mx-auto px-4 py-6 pb-32">
       {/* Header */}
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
         <div>
           <h1 className="text-2xl md:text-3xl font-black text-foreground tracking-tight">
             Receipt Verification
@@ -415,21 +416,51 @@ export function ReceiptScanner() {
           </p>
         </div>
 
-        {userEmail ? (
-          <div className="flex items-center gap-2 rounded-full bg-emerald-100 dark:bg-emerald-950/60 px-4 py-1.5 border border-emerald-300 dark:border-emerald-800">
-            <span className="h-2.5 w-2.5 rounded-full bg-emerald-600" />
-            <span className="text-xs md:text-sm font-bold text-emerald-900 dark:text-emerald-200">
-              {userEmail}
-            </span>
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Mode Selector Toggle: HMRC Essentials vs Detailed Items */}
+          <div className="flex items-center p-1 bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl shadow-sm">
+            <button
+              type="button"
+              onClick={() => { setScanMode('essentials'); triggerHaptic('light'); }}
+              className={`px-3 py-1.5 rounded-xl text-xs md:text-sm font-bold transition flex items-center gap-1.5 ${
+                scanMode === 'essentials'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:text-foreground'
+              }`}
+              title="UK Accounting Mode: Focuses on Supplier, Date, Totals & VAT (ignores line item noise)"
+            >
+              <span>🏛️ HMRC Essentials</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => { setScanMode('detailed'); triggerHaptic('light'); }}
+              className={`px-3 py-1.5 rounded-xl text-xs md:text-sm font-bold transition flex items-center gap-1.5 ${
+                scanMode === 'detailed'
+                  ? 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 shadow-sm'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:text-foreground'
+              }`}
+              title="Detailed Itemized Mode: Evaluates full line-by-line breakdown"
+            >
+              <span>📋 Detailed Items</span>
+            </button>
           </div>
-        ) : (
-          <button
-            onClick={() => { setOtpReason('cloud_ai'); setIsOtpOpen(true); }}
-            className="rounded-full bg-zinc-100 dark:bg-zinc-800 px-4 py-2 text-xs md:text-sm font-bold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition"
-          >
-            Sign In with Email OTP
-          </button>
-        )}
+
+          {userEmail ? (
+            <div className="flex items-center gap-2 rounded-full bg-emerald-100 dark:bg-emerald-950/60 px-4 py-1.5 border border-emerald-300 dark:border-emerald-800">
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-600" />
+              <span className="text-xs md:text-sm font-bold text-emerald-900 dark:text-emerald-200">
+                {userEmail}
+              </span>
+            </div>
+          ) : (
+            <button
+              onClick={() => { setOtpReason('cloud_ai'); setIsOtpOpen(true); }}
+              className="rounded-full bg-zinc-100 dark:bg-zinc-800 px-4 py-2 text-xs md:text-sm font-bold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition"
+            >
+              Sign In with Email OTP
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Drag & Drop Zone */}
@@ -535,6 +566,7 @@ export function ReceiptScanner() {
               receipt={r}
               index={idx}
               isProcessing={isProcessing}
+              scanMode={scanMode}
               onUpdate={handleUpdateReceipt}
               onDelete={handleDeleteReceipt}
               onEnhanceWithAI={handleEnhanceWithAI}
