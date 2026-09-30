@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { ExportReceiptData } from '@/lib/excel-export';
 import { triggerHaptic } from '@/lib/haptics';
 
@@ -137,10 +137,87 @@ export function ReceiptCard({
   } | null>(null);
   const [lineItemDraft, setLineItemDraft] = useState('');
 
-  // Original Document Viewer state
+  // Original Document Viewer & Navigation state (Interactive Pan & Zoom)
   const [showOriginal, setShowOriginal] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [zoomLevel, setZoomLevel] = useState<number>(1);
+  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+
+  const dragStartRef = useRef<{ x: number; y: number; panX: number; panY: number }>({
+    x: 0,
+    y: 0,
+    panX: 0,
+    panY: 0,
+  });
+  const viewerContainerRef = useRef<HTMLDivElement>(null);
+
+  // Reset zoom & pan to default centered view
+  const resetView = useCallback(() => {
+    setZoomLevel(1);
+    setPan({ x: 0, y: 0 });
+  }, []);
+
+  // Mouse pan/drag handlers (supports left-click drag and middle-wheel click drag)
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0 && e.button !== 1) return;
+    e.preventDefault();
+    setIsDragging(true);
+    dragStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      panX: pan.x,
+      panY: pan.y,
+    };
+  };
+
+  const handleMouseMove = useCallback(
+    (e: MouseEvent) => {
+      if (!isDragging) return;
+      const dx = e.clientX - dragStartRef.current.x;
+      const dy = e.clientY - dragStartRef.current.y;
+      setPan({
+        x: dragStartRef.current.panX + dx,
+        y: dragStartRef.current.panY + dy,
+      });
+    },
+    [isDragging]
+  );
+
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDragging, handleMouseMove, handleMouseUp]);
+
+  // Scroll wheel to zoom in/out smoothly without scrolling the webpage
+  useEffect(() => {
+    const container = viewerContainerRef.current;
+    if (!container) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 0.15 : -0.15;
+      setZoomLevel((prev) => {
+        const next = Math.max(0.5, Math.min(4, Math.round((prev + delta) * 100) / 100));
+        return next;
+      });
+    };
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => {
+      container.removeEventListener('wheel', handleWheel);
+    };
+  }, [showOriginal, imageUrl]);
 
   const r = receipt;
   const userVerified = r.status === 'user_verified';
@@ -293,7 +370,7 @@ export function ReceiptCard({
             <div className="flex items-center rounded-lg bg-zinc-200 dark:bg-zinc-800 px-1 py-0.5 text-xs font-bold text-zinc-600 dark:text-zinc-300">
               <button
                 type="button"
-                onClick={() => setZoomLevel((z) => Math.max(0.75, Math.round((z - 0.25) * 100) / 100))}
+                onClick={() => setZoomLevel((z) => Math.max(0.5, Math.round((z - 0.25) * 100) / 100))}
                 className="px-1.5 py-0.5 hover:text-foreground transition"
                 title="Zoom out"
               >
@@ -302,18 +379,18 @@ export function ReceiptCard({
               <span className="px-1 text-[11px] font-mono">{Math.round(zoomLevel * 100)}%</span>
               <button
                 type="button"
-                onClick={() => setZoomLevel((z) => Math.min(2.5, Math.round((z + 0.25) * 100) / 100))}
+                onClick={() => setZoomLevel((z) => Math.min(4, Math.round((z + 0.25) * 100) / 100))}
                 className="px-1.5 py-0.5 hover:text-foreground transition"
                 title="Zoom in"
               >
                 +
               </button>
-              {zoomLevel !== 1 && (
+              {(zoomLevel !== 1 || pan.x !== 0 || pan.y !== 0) && (
                 <button
                   type="button"
-                  onClick={() => setZoomLevel(1)}
+                  onClick={resetView}
                   className="ml-1 px-1 text-[10px] text-zinc-400 hover:text-foreground underline transition"
-                  title="Reset zoom"
+                  title="Reset zoom & position"
                 >
                   Reset
                 </button>
@@ -348,15 +425,37 @@ export function ReceiptCard({
         </div>
       </div>
 
-      {/* Document Body */}
+      {/* Document Body with Interactive Drag & Pan + Scroll Zoom */}
       {imageUrl ? (
-        <div className="relative overflow-auto max-h-[520px] min-h-[260px] rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-200/50 dark:bg-black/50 p-2 flex items-start justify-center">
-          <img
-            src={imageUrl}
-            alt="Original scanned document"
-            style={{ transform: `scale(${zoomLevel})`, transformOrigin: 'top center' }}
-            className="max-w-full h-auto object-contain rounded shadow transition-transform duration-150"
-          />
+        <div
+          ref={viewerContainerRef}
+          onMouseDown={handleMouseDown}
+          onDoubleClick={resetView}
+          className={`relative overflow-hidden h-[540px] rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-200/50 dark:bg-black/60 flex items-center justify-center select-none ${
+            isDragging ? 'cursor-grabbing' : 'cursor-grab'
+          }`}
+          title="Click & drag to pan • Scroll wheel to zoom • Double-click to reset"
+        >
+          <div
+            style={{
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoomLevel})`,
+              transformOrigin: 'center center',
+              transition: isDragging ? 'none' : 'transform 0.08s ease-out',
+            }}
+            className="max-w-none flex items-center justify-center pointer-events-none"
+          >
+            <img
+              src={imageUrl}
+              alt="Original scanned document"
+              draggable={false}
+              className="max-h-[500px] w-auto max-w-none object-contain rounded shadow-md pointer-events-none"
+            />
+          </div>
+
+          {/* Floating Navigation Hint Pill */}
+          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 pointer-events-none rounded-full bg-black/65 backdrop-blur-sm px-3 py-1 text-[11px] font-medium text-white/90 shadow">
+            🖱️ Drag to pan • Scroll to zoom • Double-click to reset
+          </div>
         </div>
       ) : r.rawText ? (
         <div className="overflow-auto max-h-[450px] p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 font-mono text-xs leading-relaxed text-zinc-700 dark:text-zinc-300 whitespace-pre">
