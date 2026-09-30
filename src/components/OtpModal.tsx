@@ -129,7 +129,7 @@ export function OtpModal({
             <h2 className="text-xl font-bold text-foreground">
               {reason === 'cloud_ai'
                 ? 'Claim 5 Free Cloud AI Scans'
-                : 'Download HMRC Spreadsheet'}
+                : 'Email HMRC Spreadsheet'}
             </h2>
           </div>
           <button
@@ -147,7 +147,7 @@ export function OtpModal({
         <p className="text-sm md:text-base text-zinc-600 dark:text-zinc-400 mb-6 leading-relaxed">
           {reason === 'cloud_ai'
             ? 'No password needed! We will email you a secure 6-digit one-time code to unlock high-accuracy Cloud AI parsing.'
-            : 'Enter your email to verify your session and download your HMRC-ready multi-tab Excel workbook.'}
+            : 'Enter your business or accountant email to receive a copy of your HMRC-ready multi-tab Excel workbook.'}
         </p>
 
         {errorMsg && (

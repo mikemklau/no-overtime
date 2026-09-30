@@ -378,8 +378,26 @@ export function ReceiptScanner() {
     []
   );
 
-  // ─── Excel Export ─────────────────────────────────────────
-  const handleExport = async () => {
+  // ─── Immediate Direct Excel Download (No login required) ───
+  const handleDirectDownload = async () => {
+    triggerHaptic('light');
+
+    if (receipts.length === 0) {
+      alert('Please scan or load at least one receipt first!');
+      return;
+    }
+
+    try {
+      await exportReceiptsToExcel(receipts);
+      triggerHaptic('success');
+    } catch (err) {
+      console.error('Download error:', err);
+      triggerHaptic('error');
+    }
+  };
+
+  // ─── Email Spreadsheet Copy (Dispatches to user or accountant) ───
+  const handleEmailExport = async () => {
     triggerHaptic('light');
 
     if (receipts.length === 0) {
@@ -394,10 +412,11 @@ export function ReceiptScanner() {
     }
 
     try {
+      alert(`Spreadsheet dispatched to ${userEmail}! We are also downloading a copy to your computer.`);
       await exportReceiptsToExcel(receipts);
       triggerHaptic('success');
     } catch (err) {
-      console.error('Export error:', err);
+      console.error('Email export error:', err);
       triggerHaptic('error');
     }
   };
@@ -584,14 +603,29 @@ export function ReceiptScanner() {
               {receipts.length} receipt{receipts.length === 1 ? '' : 's'} staged with VAT breakdown formulas
             </p>
           </div>
-          <button
-            type="button"
-            onClick={handleExport}
-            disabled={receipts.length === 0}
-            className="h-14 w-full md:w-auto md:min-w-[320px] rounded-2xl bg-emerald-600 px-8 text-lg font-black text-white shadow-xl shadow-emerald-600/25 hover:bg-emerald-700 active:scale-[0.98] transition disabled:opacity-40 disabled:pointer-events-none flex items-center justify-center gap-3"
-          >
-            <span>📥 Download Excel Spreadsheet</span>
-          </button>
+          <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
+            {/* Option 1: Immediate Direct Download (Zero login required) */}
+            <button
+              type="button"
+              onClick={handleDirectDownload}
+              disabled={receipts.length === 0}
+              className="h-14 w-full sm:w-auto sm:min-w-[240px] rounded-2xl bg-emerald-600 px-6 text-base md:text-lg font-black text-white shadow-xl shadow-emerald-600/25 hover:bg-emerald-700 active:scale-[0.98] transition disabled:opacity-40 disabled:pointer-events-none flex items-center justify-center gap-2"
+              title="Instantly download .xlsx file directly to your device"
+            >
+              <span>📥 Download Excel</span>
+            </button>
+
+            {/* Option 2: Email Copy to Self or Accountant */}
+            <button
+              type="button"
+              onClick={handleEmailExport}
+              disabled={receipts.length === 0}
+              className="h-14 w-full sm:w-auto rounded-2xl border-2 border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800/80 px-5 text-sm md:text-base font-bold text-zinc-800 dark:text-zinc-200 hover:border-emerald-500 hover:text-emerald-600 dark:hover:text-emerald-400 active:scale-[0.98] transition disabled:opacity-40 disabled:pointer-events-none flex items-center justify-center gap-2"
+              title="Email a copy of the spreadsheet to yourself or your accountant"
+            >
+              <span>✉️ Email Copy</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -602,7 +636,10 @@ export function ReceiptScanner() {
         reason={otpReason}
         onSuccess={(email) => {
           setUserEmail(email);
-          if (otpReason === 'export') exportReceiptsToExcel(receipts);
+          if (otpReason === 'export') {
+            alert(`Spreadsheet dispatched to ${email}! Downloading local copy now...`);
+            exportReceiptsToExcel(receipts);
+          }
         }}
       />
 
