@@ -176,7 +176,15 @@ export function ReceiptCard({
 }: ReceiptCardProps) {
   const [localMode, setLocalMode] = useState<'essentials' | 'detailed' | null>(null);
   const activeMode = localMode ?? scanMode;
-  const [showLineItems, setShowLineItems] = useState(true);
+  const [userExpandedItems, setUserExpandedItems] = useState<boolean | null>(null);
+  const isItemsVisible = userExpandedItems ?? (activeMode === 'detailed');
+
+  // When global mode switches, reset overrides so items automatically hide/show accordingly
+  useEffect(() => {
+    setUserExpandedItems(null);
+    setLocalMode(null);
+  }, [scanMode]);
+
   const [editingField, setEditingField] = useState<EditingField>(null);
   const [editingLineItem, setEditingLineItem] = useState<{
     lineIdx: number;
@@ -707,8 +715,8 @@ export function ReceiptCard({
           </div>
 
           {/* Line Items (Editable) */}
-          <div className="mb-4 space-y-1 text-sm border-t border-zinc-100 dark:border-zinc-800 pt-3">
-            <div className="flex justify-between items-center mb-2">
+          <div className="mb-4 space-y-2 text-sm border-t border-zinc-100 dark:border-zinc-800 pt-3">
+            <div className="flex justify-between items-center mb-1">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold uppercase text-zinc-400">
                   Line Items{' '}
@@ -721,24 +729,45 @@ export function ReceiptCard({
                   <button
                     type="button"
                     onClick={() => {
-                      setShowLineItems((prev) => !prev);
+                      setUserExpandedItems(!isItemsVisible);
                       triggerHaptic('light');
                     }}
                     className="text-[11px] font-bold text-zinc-500 hover:text-emerald-600 dark:hover:text-emerald-400 transition underline"
                   >
-                    {showLineItems ? 'Hide Items' : `Show (${r.lineItems.length})`}
+                    {isItemsVisible ? 'Hide Items' : `Show (${r.lineItems.length})`}
                   </button>
                 )}
               </div>
-              <button
-                type="button"
-                onClick={handleAddLineItem}
-                className="text-xs font-bold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 transition"
-              >
-                + Add Item
-              </button>
+              {isItemsVisible && (
+                <button
+                  type="button"
+                  onClick={handleAddLineItem}
+                  className="text-xs font-bold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 transition"
+                >
+                  + Add Item
+                </button>
+              )}
             </div>
-            {showLineItems && (
+
+            {!isItemsVisible && (
+              <div className="py-2.5 px-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200/50 dark:border-zinc-700/50 text-xs text-zinc-500 flex items-center justify-between">
+                <span>Line items are hidden in Essentials mode (optional for HMRC tax filing).</span>
+                {(r.lineItems?.length || 0) > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUserExpandedItems(true);
+                      triggerHaptic('light');
+                    }}
+                    className="font-bold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 underline ml-2 shrink-0"
+                  >
+                    View {r.lineItems.length} item{r.lineItems.length === 1 ? '' : 's'}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {isItemsVisible && (
               r.lineItems && r.lineItems.length > 0 ? (
                 r.lineItems.map((item, iIdx) => (
                   <div
