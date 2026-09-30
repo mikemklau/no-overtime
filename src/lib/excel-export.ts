@@ -27,9 +27,8 @@ export interface ExportReceiptData {
 /**
  * Generate an HMRC-ready multi-tab Excel workbook using ExcelJS
  * Features:
- *  - Tab 1: Receipts Register (UK 20% VAT Reclaim with native SUM formulas) [DEFAULT ACTIVE TAB]
- *  - Tab 2: Line Items (Detailed line item categorization)
- *  - Tab 3: Summary (HMRC statement, KPI metrics, VAT totals, date range)
+ *  - Tab 1: Receipts Register (HMRC Summary Banner + Full Receipts Table with VAT formulas) [DEFAULT ACTIVE TAB]
+ *  - Tab 2: Line Items (Detailed item-by-item breakdown)
  *  - Sticky/frozen top headers
  *  - UK currency formatting (£#,##0.00)
  */
@@ -58,90 +57,150 @@ export async function exportReceiptsToExcel(
 
   // Calculate overall metrics
   const totalCount = receipts.length;
-  const dates = receipts
-    .map((r) => r.receiptDate)
-    .filter((d): d is string => Boolean(d))
-    .sort();
-  const dateRangeStr =
-    dates.length > 0 ? `${dates[0]} to ${dates[dates.length - 1]}` : 'N/A';
-
   const sumTotal = receipts.reduce((acc, r) => acc + (r.totalAmount || 0), 0);
   const sumVat = receipts.reduce((acc, r) => acc + (r.vatAmount || 0), 0);
   const sumNet = receipts.reduce((acc, r) => acc + (r.subtotal || 0), 0);
   const sumService = receipts.reduce((acc, r) => acc + (r.serviceCharge || 0), 0);
 
   // ─────────────────────────────────────────────────────────────
-  // TAB 1: RECEIPTS REGISTER & VAT RECLAIM TAB (First tab = opened by default)
+  // TAB 1: RECEIPTS REGISTER & VAT RECLAIM (Default Active Tab)
   // ─────────────────────────────────────────────────────────────
   const registerSheet = workbook.addWorksheet('Receipts Register', {
-    views: [{ state: 'frozen', ySplit: 1, showGridLines: true }],
+    views: [{ state: 'frozen', ySplit: 5, showGridLines: true }],
   });
 
   registerSheet.columns = [
-    { header: 'Ref #', key: 'ref', width: 12 },
-    { header: 'Receipt Date', key: 'date', width: 16 },
-    { header: 'Merchant / Supplier', key: 'merchant', width: 30 },
-    { header: 'Currency', key: 'currency', width: 10 },
-    { header: 'Net Subtotal (£)', key: 'subtotal', width: 16 },
-    { header: 'UK VAT 20% (£)', key: 'vat', width: 16 },
-    { header: 'Service Charge (£)', key: 'service', width: 18 },
-    { header: 'Gross Total (£)', key: 'total', width: 16 },
-    { header: 'HMRC Score', key: 'confidence', width: 14 },
-    { header: 'Status', key: 'status', width: 16 },
+    { key: 'ref', width: 14 },
+    { key: 'date', width: 16 },
+    { key: 'merchant', width: 32 },
+    { key: 'subtotal', width: 18 },
+    { key: 'vat', width: 18 },
+    { key: 'service', width: 18 },
+    { key: 'total', width: 18 },
+    { key: 'confidence', width: 15 },
+    { key: 'status', width: 16 },
   ];
 
-  // Style Header Row
-  const regHeaderRow = registerSheet.getRow(1);
-  regHeaderRow.font = headerFont;
-  regHeaderRow.height = 26;
-  regHeaderRow.eachCell((cell) => {
+  // Title Row (Row 1)
+  registerSheet.mergeCells('A1:I1');
+  const titleCell = registerSheet.getCell('A1');
+  titleCell.value = 'HMRC RECEIPT & VAT RECLAIM REGISTER';
+  titleCell.font = { name: 'Calibri', size: 15, bold: true, color: { argb: 'FF0F766E' } };
+  titleCell.alignment = { vertical: 'middle' };
+  registerSheet.getRow(1).height = 24;
+
+  // Subtitle Row (Row 2)
+  registerSheet.mergeCells('A2:I2');
+  const subCell = registerSheet.getCell('A2');
+  subCell.value = `Generated on ${new Date().toLocaleDateString('en-GB')} via No Overtime • Making Tax Digital (MTD) Compliant`;
+  subCell.font = { name: 'Calibri', size: 10, italic: true, color: { argb: 'FF6B7280' } };
+  registerSheet.getRow(2).height = 18;
+
+  // KPI Summary Row (Row 4)
+  const kpiRow = registerSheet.getRow(4);
+  kpiRow.height = 22;
+  registerSheet.getCell('A4').value = `Total Receipts: ${totalCount}`;
+  registerSheet.getCell('A4').font = { name: 'Calibri', size: 11, bold: true };
+  
+  registerSheet.getCell('C4').value = `Net Subtotal: £${sumNet.toFixed(2)}`;
+  registerSheet.getCell('C4').font = { name: 'Calibri', size: 11, bold: true };
+
+  registerSheet.getCell('E4').value = `VAT Reclaim (20%): £${sumVat.toFixed(2)}`;
+  registerSheet.getCell('E4').font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF0F766E' } };
+
+  registerSheet.getCell('G4').value = `Gross Total: £${sumTotal.toFixed(2)}`;
+  registerSheet.getCell('G4').font = { name: 'Calibri', size: 11, bold: true };
+
+  // Table Headers (Row 5)
+  const headerRow = registerSheet.getRow(5);
+  headerRow.height = 26;
+  const headers = [
+    'Ref #',
+    'Receipt Date',
+    'Merchant / Supplier',
+    'Net Subtotal (£)',
+    'UK VAT 20% (£)',
+    'Service Charge (£)',
+    'Gross Total (£)',
+    'HMRC Score',
+    'Status'
+  ];
+  headers.forEach((h, i) => {
+    const cell = headerRow.getCell(i + 1);
+    cell.value = h;
     cell.fill = headerFill;
-    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+    cell.font = headerFont;
+    cell.alignment = {
+      vertical: 'middle',
+      horizontal: i === 0 || i >= 7 ? 'center' : (i >= 3 && i <= 6 ? 'right' : 'left'),
+    };
   });
 
-  // Populate Rows
+  // Table Data (Row 6+)
   receipts.forEach((r, idx) => {
-    const row = registerSheet.addRow({
-      ref: `REC-${String(idx + 1).padStart(4, '0')}`,
-      date: r.receiptDate || 'DD/MM/YYYY',
-      merchant: r.merchantName || 'Unknown Merchant',
-      currency: r.currency || 'GBP',
-      subtotal: r.subtotal ?? (r.totalAmount ? Math.round(((r.totalAmount - (r.vatAmount ?? 0)) + Number.EPSILON) * 100) / 100 : 0),
-      vat: r.vatAmount ?? 0,
-      service: r.serviceCharge ?? 0,
-      total: r.totalAmount ?? 0,
-      confidence: `${r.essentialsConfidence ?? r.confidence}%`,
-      status: r.status === 'user_verified' ? 'User Verified' : r.status,
-    });
+    const rowNum = 6 + idx;
+    const row = registerSheet.getRow(rowNum);
+    row.height = 20;
 
-    row.getCell('subtotal').numFmt = currencyFormat;
-    row.getCell('vat').numFmt = currencyFormat;
-    row.getCell('service').numFmt = currencyFormat;
-    row.getCell('total').numFmt = currencyFormat;
-    row.alignment = { vertical: 'middle' };
+    row.getCell(1).value = `REC-${String(idx + 1).padStart(4, '0')}`;
+    row.getCell(1).alignment = { horizontal: 'center' };
+
+    row.getCell(2).value = r.receiptDate || 'DD/MM/YYYY';
+
+    row.getCell(3).value = r.merchantName || 'Unknown Merchant';
+    row.getCell(3).font = { bold: true };
+
+    const netVal = r.subtotal ?? (r.totalAmount ? Math.round(((r.totalAmount - (r.vatAmount ?? 0)) + Number.EPSILON) * 100) / 100 : 0);
+    row.getCell(4).value = netVal;
+    row.getCell(4).numFmt = currencyFormat;
+
+    row.getCell(5).value = r.vatAmount ?? 0;
+    row.getCell(5).numFmt = currencyFormat;
+    row.getCell(5).font = { bold: true, color: { argb: 'FF0F766E' } };
+
+    row.getCell(6).value = r.serviceCharge ?? 0;
+    row.getCell(6).numFmt = currencyFormat;
+
+    row.getCell(7).value = r.totalAmount ?? 0;
+    row.getCell(7).numFmt = currencyFormat;
+    row.getCell(7).font = { bold: true };
+
+    row.getCell(8).value = `${r.essentialsConfidence ?? r.confidence}%`;
+    row.getCell(8).alignment = { horizontal: 'center' };
+
+    row.getCell(9).value = r.status === 'user_verified' ? 'User Verified' : 'Verified Read';
+    row.getCell(9).alignment = { horizontal: 'center' };
   });
 
-  // Dynamic Excel formulas at the bottom with cached result values
+  // Totals Row at the bottom
   if (receipts.length > 0) {
-    const lastRowIndex = receipts.length + 1;
-    const totalRowIndex = lastRowIndex + 1;
-    const totalRow = registerSheet.getRow(totalRowIndex);
+    const lastDataRow = 5 + receipts.length;
+    const totalRowNum = lastDataRow + 1;
+    const totalRow = registerSheet.getRow(totalRowNum);
+    totalRow.height = 24;
 
-    totalRow.getCell('merchant').value = 'TOTALS (HMRC Reclaim Sum):';
-    totalRow.getCell('subtotal').value = { formula: `SUM(E2:E${lastRowIndex})`, result: sumNet };
-    totalRow.getCell('vat').value = { formula: `SUM(F2:F${lastRowIndex})`, result: sumVat };
-    totalRow.getCell('service').value = { formula: `SUM(G2:G${lastRowIndex})`, result: sumService };
-    totalRow.getCell('total').value = { formula: `SUM(H2:H${lastRowIndex})`, result: sumTotal };
+    totalRow.getCell(3).value = 'TOTALS (HMRC Reclaim Sum):';
+    totalRow.getCell(3).font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF0F766E' } };
 
-    totalRow.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF0F766E' } };
-    totalRow.getCell('subtotal').numFmt = currencyFormat;
-    totalRow.getCell('vat').numFmt = currencyFormat;
-    totalRow.getCell('service').numFmt = currencyFormat;
-    totalRow.getCell('total').numFmt = currencyFormat;
+    totalRow.getCell(4).value = { formula: `SUM(D6:D${lastDataRow})`, result: sumNet };
+    totalRow.getCell(4).numFmt = currencyFormat;
+    totalRow.getCell(4).font = { bold: true };
+
+    totalRow.getCell(5).value = { formula: `SUM(E6:E${lastDataRow})`, result: sumVat };
+    totalRow.getCell(5).numFmt = currencyFormat;
+    totalRow.getCell(5).font = { bold: true, color: { argb: 'FF0F766E' } };
+
+    totalRow.getCell(6).value = { formula: `SUM(F6:F${lastDataRow})`, result: sumService };
+    totalRow.getCell(6).numFmt = currencyFormat;
+    totalRow.getCell(6).font = { bold: true };
+
+    totalRow.getCell(7).value = { formula: `SUM(G6:G${lastDataRow})`, result: sumTotal };
+    totalRow.getCell(7).numFmt = currencyFormat;
+    totalRow.getCell(7).font = { bold: true };
   }
 
   // ─────────────────────────────────────────────────────────────
-  // TAB 2: LINE ITEMS TAB
+  // TAB 2: LINE ITEMS BREAKDOWN
   // ─────────────────────────────────────────────────────────────
   const itemsSheet = workbook.addWorksheet('Line Items', {
     views: [{ state: 'frozen', ySplit: 1, showGridLines: true }],
@@ -201,68 +260,6 @@ export async function exportReceiptsToExcel(
       row.getCell('totalPrice').numFmt = currencyFormat;
     }
   });
-
-  // ─────────────────────────────────────────────────────────────
-  // TAB 3: HMRC SUMMARY TAB (Aligned starting at Cell A1)
-  // ─────────────────────────────────────────────────────────────
-  const summarySheet = workbook.addWorksheet('Summary', {
-    views: [{ showGridLines: true }],
-  });
-
-  summarySheet.columns = [
-    { width: 36 },
-    { width: 28 },
-    { width: 22 },
-  ];
-
-  // Title Block (Starting cleanly at A1)
-  summarySheet.mergeCells('A1:C1');
-  const titleCell = summarySheet.getCell('A1');
-  titleCell.value = 'HMRC RECEIPT & VAT RECLAIM SUMMARY';
-  titleCell.font = { name: 'Calibri', size: 15, bold: true, color: { argb: 'FF0F766E' } };
-
-  summarySheet.mergeCells('A2:C2');
-  const subtitleCell = summarySheet.getCell('A2');
-  subtitleCell.value = `Generated on ${new Date().toLocaleDateString('en-GB')} via No Overtime`;
-  subtitleCell.font = { name: 'Calibri', size: 10, italic: true, color: { argb: 'FF6B7280' } };
-
-  // Table Data
-  const summaryMetrics: [string, string | number, string?][] = [
-    ['Total Receipts Processed', totalCount],
-    ['Accounting Date Range', dateRangeStr],
-    ['Gross Total Expenditure (Inc. VAT)', sumTotal, currencyFormat],
-    ['Total UK 20% VAT Reclaimable', sumVat, currencyFormat],
-    ['Net Business Expenditure', sumNet, currencyFormat],
-  ];
-
-  const startRow = 4;
-  summarySheet.getCell(`A${startRow}`).value = 'Metric';
-  summarySheet.getCell(`B${startRow}`).value = 'Value';
-  summarySheet.getCell(`A${startRow}`).font = headerFont;
-  summarySheet.getCell(`B${startRow}`).font = headerFont;
-  summarySheet.getCell(`A${startRow}`).fill = headerFill;
-  summarySheet.getCell(`B${startRow}`).fill = headerFill;
-
-  summaryMetrics.forEach(([metric, val, format], idx) => {
-    const rowNum = startRow + 1 + idx;
-    const mCell = summarySheet.getCell(`A${rowNum}`);
-    const vCell = summarySheet.getCell(`B${rowNum}`);
-    mCell.value = metric;
-    mCell.font = { name: 'Calibri', size: 11, bold: idx >= 2 };
-    vCell.value = val;
-    vCell.font = { name: 'Calibri', size: 11, bold: idx >= 2 };
-    if (format) {
-      vCell.numFmt = format;
-    }
-  });
-
-  // Note for HMRC Compliance
-  const noteRow = startRow + summaryMetrics.length + 3;
-  summarySheet.mergeCells(`A${noteRow}:C${noteRow + 1}`);
-  const noteCell = summarySheet.getCell(`A${noteRow}`);
-  noteCell.value =
-    'Note: Digital records and VAT breakdowns compiled in compliance with HMRC Making Tax Digital (MTD) rules. Original receipt images stored in secure cloud vault.';
-  noteCell.font = { name: 'Calibri', size: 9, italic: true, color: { argb: 'FF4B5563' } };
 
   // Generate buffer and trigger browser download via file-saver
   const buffer = await workbook.xlsx.writeBuffer();
