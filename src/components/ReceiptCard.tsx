@@ -21,30 +21,51 @@ type EditingField = null | 'merchantName' | 'receiptDate' | 'totalAmount' | 'vat
 // ─────────────────────────────────────────────────────────────
 // Confidence badge helper
 // ─────────────────────────────────────────────────────────────
-function getConfidenceBadge(confidence: number, userVerified: boolean) {
+function getConfidenceBadge(
+  confidence: number,
+  userVerified: boolean,
+  essentialsConfidence?: number
+) {
   if (userVerified) {
     return {
       text: '✓ User Verified',
+      score: 100,
       style:
         'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800',
     };
   }
+
+  // If essentials (totals, VAT, merchant, date) are >= 90%, it's ready for UK HMRC accounting even if line items were noisy
+  if (essentialsConfidence !== undefined && essentialsConfidence >= 90 && confidence < 90) {
+    return {
+      text: '✓ HMRC Ready',
+      score: essentialsConfidence,
+      subText: `Items: ${confidence}%`,
+      style:
+        'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800',
+    };
+  }
+
   if (confidence >= 90) {
     return {
       text: '✓ Verified Read',
+      score: confidence,
       style:
         'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800',
     };
   }
-  if (confidence >= 70) {
+  if (confidence >= 70 || (essentialsConfidence !== undefined && essentialsConfidence >= 75)) {
+    const displayScore = Math.max(confidence, essentialsConfidence ?? 0);
     return {
       text: '⚠ Check Total',
+      score: displayScore,
       style:
         'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800',
     };
   }
   return {
     text: '✕ Needs Attention',
+    score: confidence,
     style:
       'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-800',
   };
@@ -221,7 +242,7 @@ export function ReceiptCard({
 
   const r = receipt;
   const userVerified = r.status === 'user_verified';
-  const badge = getConfidenceBadge(r.confidence, userVerified);
+  const badge = getConfidenceBadge(r.confidence, userVerified, r.essentialsConfidence);
 
   // ─── Object URL for Original Image ─────────────────────────
   useEffect(() => {
@@ -516,11 +537,19 @@ export function ReceiptCard({
             <span>{showOriginal ? '✕ Hide Scan' : '📄 View Original'}</span>
           </button>
 
-          <span
-            className={`inline-flex items-center rounded-xl border px-3.5 py-1.5 text-xs md:text-sm font-black tracking-wide ${badge.style}`}
-          >
-            {badge.text} ({userVerified ? 100 : r.confidence}%)
-          </span>
+          <div className="flex flex-col items-end">
+            <span
+              className={`inline-flex items-center rounded-xl border px-3 py-1 text-xs md:text-sm font-black tracking-wide ${badge.style}`}
+              title={badge.subText ? `Accounting essentials: ${badge.score}% | Line items: ${r.confidence}%` : undefined}
+            >
+              {badge.text} ({badge.score}%)
+            </span>
+            {badge.subText && (
+              <span className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 mt-0.5 mr-1">
+                {badge.subText} (Optional)
+              </span>
+            )}
+          </div>
 
           <button
             type="button"
@@ -647,7 +676,9 @@ export function ReceiptCard({
           {/* Line Items (Editable) */}
           <div className="mb-4 space-y-1 text-sm border-t border-zinc-100 dark:border-zinc-800 pt-3">
             <div className="flex justify-between items-center mb-2">
-              <span className="text-xs font-bold uppercase text-zinc-400">Line Items:</span>
+              <span className="text-xs font-bold uppercase text-zinc-400">
+                Line Items <span className="text-[10px] font-normal lowercase tracking-normal text-zinc-400 dark:text-zinc-500">(optional for HMRC)</span>:
+              </span>
               <button
                 type="button"
                 onClick={handleAddLineItem}

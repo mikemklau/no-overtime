@@ -125,6 +125,7 @@ async function extractReceiptWithVision(
       })
     ),
     confidence: Math.min(100, Math.max(0, Math.round(parsed.confidence ?? 90))),
+    essentialsConfidence: Math.min(100, Math.max(0, Math.round(parsed.confidence ?? 95))),
     rawText: '',
   };
 }

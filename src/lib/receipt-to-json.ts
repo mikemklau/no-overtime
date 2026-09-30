@@ -30,7 +30,8 @@ export interface ParsedReceipt {
   serviceCharge: number | null;     // UK 12.5% optional
   totalAmount: number | null;
   lineItems: ParsedLineItem[];
-  confidence: number;               // 0–100
+  confidence: number;               // 0–100 (full, includes line items)
+  essentialsConfidence?: number;     // 0–100 (UK accounting: merchant + date + total + VAT only)
   rawText: string;
 }
 
@@ -38,6 +39,17 @@ export interface ParsedReceipt {
  * Map the rich Receipt model from receipt-to-json into the UI's ParsedReceipt shape.
  */
 export function receiptToParsedReceipt(receipt: Receipt, fallbackRawText = ''): ParsedReceipt {
+  // Compute essentials-only confidence: weighted average of the 4 UK accounting fields.
+  // Merchant and Date are less critical than Totals and Tax for HMRC, so weight accordingly.
+  const essentialScores = [
+    { score: receipt.confidence.merchant ?? 0.5, weight: 1 },
+    { score: receipt.confidence.dateTime ?? 0.5, weight: 1 },
+    { score: receipt.confidence.totals ?? 0.5, weight: 2 },
+    { score: receipt.confidence.tax ?? receipt.confidence.totals ?? 0.5, weight: 2 },
+  ];
+  const totalWeight = essentialScores.reduce((s, e) => s + e.weight, 0);
+  const essentialsRaw = essentialScores.reduce((s, e) => s + e.score * e.weight, 0) / totalWeight;
+
   return {
     merchantName: receipt.merchant.name === 'Unknown merchant' ? null : receipt.merchant.name,
     receiptDate: receipt.dateTime.date === '1970-01-01' ? null : receipt.dateTime.date,
@@ -47,6 +59,7 @@ export function receiptToParsedReceipt(receipt: Receipt, fallbackRawText = ''): 
     serviceCharge: (receipt.totals.serviceCharge ?? 0) > 0 ? receipt.totals.serviceCharge! : null,
     totalAmount: receipt.totals.grandTotal,
     confidence: Math.round((receipt.confidence.overall ?? 0.5) * 100),
+    essentialsConfidence: Math.round(essentialsRaw * 100),
     rawText: fallbackRawText || receipt.rawText || '',
     lineItems: receipt.lineItems.map((item) => ({
       description: item.description,

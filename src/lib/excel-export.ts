@@ -11,6 +11,7 @@ export interface ExportReceiptData {
   serviceCharge: number | null;
   totalAmount: number | null;
   confidence: number;
+  essentialsConfidence?: number;
   status: string;
   sourceFile?: File | Blob;
   rawText?: string;
