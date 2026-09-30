@@ -22,7 +22,7 @@
     "openai": "^7.25.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "receipt-to-json": "file:../../reciept-to-json",
+    "receipt-to-json": "file:../../receipt-to-json",
     "tesseract.js": "^7.0.0"
   },
   "devDependencies": {

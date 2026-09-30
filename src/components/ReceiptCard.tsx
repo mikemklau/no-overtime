@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { ExportReceiptData } from '@/lib/excel-export';
 import { triggerHaptic } from '@/lib/haptics';
+import { checkReceiptMath } from '@/lib/receipt-to-json';
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -37,59 +38,54 @@ function getConfidenceBadge(
     };
   }
 
-  // When in HMRC Essentials mode: evaluate strictly on Supplier, Date, Totals and VAT
-  if (scanMode === 'essentials') {
-    const score = essentialsConfidence ?? confidence;
-    if (score >= 90) {
-      return {
-        text: '✓ HMRC Ready',
-        score,
-        subText: `Items: ${confidence}%`,
-        style:
-          'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800',
-      };
-    }
-    if (score >= 70) {
-      return {
-        text: '⚠ Check Total',
-        score,
-        subText: `Items: ${confidence}%`,
-        style:
-          'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800',
-      };
-    }
-    return {
-      text: '✕ Needs Attention',
-      score,
-      style:
-        'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-800',
-    };
-  }
+  const score = scanMode === 'essentials' ? (essentialsConfidence ?? confidence) : confidence;
 
-  // Detailed mode: evaluate all lines including individual items
-  if (confidence >= 90) {
+  if (score >= 90) {
     return {
-      text: '✓ Verified Read',
-      score: confidence,
-      subText: essentialsConfidence ? `HMRC: ${essentialsConfidence}%` : undefined,
+      text: scanMode === 'essentials' ? '✓ HMRC Ready' : '✓ Verified Read',
+      score,
+      subText: scanMode === 'essentials' ? `Items: ${confidence}%` : (essentialsConfidence ? `HMRC: ${essentialsConfidence}%` : undefined),
       style:
         'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800',
     };
   }
-  if (confidence >= 70) {
+  if (score >= 70) {
     return {
       text: '⚠ Check Total',
-      score: confidence,
-      subText: essentialsConfidence ? `HMRC: ${essentialsConfidence}%` : undefined,
+      score,
+      subText: scanMode === 'essentials' ? `Items: ${confidence}%` : (essentialsConfidence ? `HMRC: ${essentialsConfidence}%` : undefined),
       style:
         'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800',
     };
   }
   return {
     text: '✕ Needs Attention',
-    score: confidence,
+    score,
     style:
       'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-800',
+  };
+}
+
+// ─────────────────────────────────────────────────────────────
+// Discreet Confidence Color Helper (0% red -> 80% pale green -> 100% leaf green)
+// ─────────────────────────────────────────────────────────────
+function getConfidenceColorInfo(score: number, userVerified = false) {
+  const effectiveScore = userVerified ? 100 : Math.min(100, Math.max(0, score));
+  let hue: number;
+
+  if (effectiveScore <= 80) {
+    // 0 is red (0°), 80 is pale green (100°)
+    hue = (effectiveScore / 80) * 100;
+  } else {
+    // 80 is 100°, 100 is leaf green (138°)
+    hue = 100 + ((effectiveScore - 80) / 20) * 38;
+  }
+
+  const roundedHue = Math.round(hue);
+  return {
+    score: effectiveScore,
+    vars: { '--c-conf': roundedHue } as React.CSSProperties,
+    className: 'text-[hsl(var(--c-conf),82%,36%)] dark:text-[hsl(var(--c-conf),82%,54%)]',
   };
 }
 
@@ -278,6 +274,45 @@ export function ReceiptCard({
   const userVerified = r.status === 'user_verified';
   const badge = getConfidenceBadge(r.confidence, userVerified, r.essentialsConfidence, activeMode);
 
+  // ─── Field-Level Confidence Scores ──────────────────────────
+  const merchantConf = userVerified
+    ? 100
+    : (r.fieldConfidence?.merchantName ?? (r.merchantName ? (r.essentialsConfidence ?? r.confidence) : 20));
+
+  const dateConf = userVerified
+    ? 100
+    : (r.fieldConfidence?.receiptDate ?? (r.receiptDate ? (r.essentialsConfidence ?? r.confidence) : 15));
+
+  const totalConf = userVerified
+    ? 100
+    : (r.fieldConfidence?.totalAmount ?? (r.totalAmount !== null ? (r.essentialsConfidence ?? r.confidence) : 30));
+
+  const vatConf = userVerified
+    ? 100
+    : (r.fieldConfidence?.vatAmount ?? (r.vatAmount !== null ? (r.essentialsConfidence ?? r.confidence) : 50));
+
+  const subtotalConf = userVerified
+    ? 100
+    : (r.fieldConfidence?.subtotal ?? (r.subtotal !== null ? r.confidence : 50));
+
+  const serviceChargeConf = userVerified
+    ? 100
+    : (r.fieldConfidence?.serviceCharge ?? (r.serviceCharge !== null ? r.confidence : 80));
+
+  const merchantConfStyle = getConfidenceColorInfo(merchantConf, userVerified);
+  const dateConfStyle = getConfidenceColorInfo(dateConf, userVerified);
+  const totalConfStyle = getConfidenceColorInfo(totalConf, userVerified);
+  const vatConfStyle = getConfidenceColorInfo(vatConf, userVerified);
+  const subtotalConfStyle = getConfidenceColorInfo(subtotalConf, userVerified);
+  const serviceChargeConfStyle = getConfidenceColorInfo(serviceChargeConf, userVerified);
+
+  // Dynamic mathematical validation of totals
+  const mathValidation = checkReceiptMath(r);
+  const mathWarning =
+    mathValidation.hasMismatch
+      ? mathValidation.message
+      : r.warnings?.find((w) => w.code === 'totals_math_mismatch' || w.code === 'vat_exceeds_total')?.message;
+
   // ─── Object URL for Original Image ─────────────────────────
   useEffect(() => {
     if (r.sourceFile && r.sourceFile instanceof Blob) {
@@ -295,7 +330,13 @@ export function ReceiptCard({
   const handleFieldCommit = useCallback(
     (field: NonNullable<EditingField>, value: string) => {
       setEditingField(null);
-      const updated = { ...r };
+      const updated = {
+        ...r,
+        fieldConfidence: {
+          ...r.fieldConfidence,
+          [field]: 100,
+        },
+      };
 
       switch (field) {
         case 'merchantName':
@@ -353,7 +394,7 @@ export function ReceiptCard({
     if (!editingLineItem) return;
     const { lineIdx, field } = editingLineItem;
     const newItems = [...(r.lineItems || [])];
-    const item = { ...newItems[lineIdx] };
+    const item = { ...newItems[lineIdx], confidence: 100 };
 
     if (field === 'description') {
       item.description = lineItemDraft || item.description;
@@ -384,6 +425,7 @@ export function ReceiptCard({
         unitPrice: 0,
         totalPrice: 0,
         category: 'General Expense' as string | null,
+        confidence: 100,
       },
     ];
     onUpdate(index, { ...r, lineItems: newItems });
@@ -401,6 +443,16 @@ export function ReceiptCard({
     onUpdate(index, {
       ...r,
       confidence: 100,
+      essentialsConfidence: 100,
+      fieldConfidence: {
+        merchantName: 100,
+        receiptDate: 100,
+        totalAmount: 100,
+        vatAmount: 100,
+        subtotal: 100,
+        serviceCharge: 100,
+      },
+      lineItems: (r.lineItems || []).map((item) => ({ ...item, confidence: 100 })),
       status: 'user_verified',
     });
     triggerHaptic('success');
@@ -530,27 +582,45 @@ export function ReceiptCard({
       {/* Top Row: Merchant + Badges + Toggle Original + Delete */}
       <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
         <div className="flex-1 min-w-0">
-          <EditableField
-            value={r.receiptDate || ''}
-            displayValue={r.receiptDate || 'DD/MM/YYYY'}
-            fieldName="receiptDate"
-            editingField={editingField}
-            onStartEdit={setEditingField}
-            onCommit={handleFieldCommit}
-            inputType="date"
-            className="text-xs font-bold text-zinc-500 uppercase tracking-wider block mb-1"
-            inputClassName="text-xs w-40"
-          />
-          <EditableField
-            value={r.merchantName || ''}
-            displayValue={r.merchantName || 'Unknown Merchant'}
-            fieldName="merchantName"
-            editingField={editingField}
-            onStartEdit={setEditingField}
-            onCommit={handleFieldCommit}
-            className="text-2xl md:text-3xl font-black text-foreground tracking-tight block"
-            inputClassName="text-2xl md:text-3xl w-full max-w-sm"
-          />
+          <div className="flex items-center gap-2 mb-1">
+            <EditableField
+              value={r.receiptDate || ''}
+              displayValue={r.receiptDate ? r.receiptDate.split('-').reverse().join('/') : 'DD/MM/YYYY'}
+              fieldName="receiptDate"
+              editingField={editingField}
+              onStartEdit={setEditingField}
+              onCommit={handleFieldCommit}
+              inputType="date"
+              className="text-xs font-bold text-zinc-500 uppercase tracking-wider block"
+              inputClassName="text-xs w-40"
+            />
+            <span
+              style={dateConfStyle.vars}
+              className={`text-xs font-bold tabular-nums ${dateConfStyle.className}`}
+              title={`Date confidence: ${dateConf}%`}
+            >
+              {dateConf}%
+            </span>
+          </div>
+          <div className="flex items-center gap-2.5">
+            <EditableField
+              value={r.merchantName || ''}
+              displayValue={r.merchantName || 'Unknown Merchant'}
+              fieldName="merchantName"
+              editingField={editingField}
+              onStartEdit={setEditingField}
+              onCommit={handleFieldCommit}
+              className="text-2xl md:text-3xl font-black text-foreground tracking-tight block"
+              inputClassName="text-2xl md:text-3xl w-full max-w-sm"
+            />
+            <span
+              style={merchantConfStyle.vars}
+              className={`text-sm md:text-base font-bold tabular-nums self-center ${merchantConfStyle.className}`}
+              title={`Merchant confidence: ${merchantConf}%`}
+            >
+              {merchantConf}%
+            </span>
+          </div>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
@@ -620,10 +690,20 @@ export function ReceiptCard({
                 : 'grid grid-cols-2 md:grid-cols-4 gap-4 p-4 rounded-2xl bg-zinc-50 dark:bg-zinc-800/50 mb-4'
             }
           >
+            {/* Total GBP */}
             <div className="min-w-0">
-              <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wide block truncate">
-                Total (GBP)
-              </span>
+              <div className="flex items-center justify-between gap-1 mb-1">
+                <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wide truncate">
+                  Total (GBP)
+                </span>
+                <span
+                  style={totalConfStyle.vars}
+                  className={`text-[11px] font-bold tabular-nums ${totalConfStyle.className}`}
+                  title={`Total confidence: ${totalConf}%`}
+                >
+                  {totalConf}%
+                </span>
+              </div>
               <div
                 className={
                   showOriginal
@@ -643,10 +723,21 @@ export function ReceiptCard({
                 />
               </div>
             </div>
+
+            {/* UK 20% VAT */}
             <div className="min-w-0">
-              <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wide block truncate">
-                UK 20% VAT
-              </span>
+              <div className="flex items-center justify-between gap-1 mb-1">
+                <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wide truncate">
+                  UK 20% VAT
+                </span>
+                <span
+                  style={vatConfStyle.vars}
+                  className={`text-[11px] font-bold tabular-nums ${vatConfStyle.className}`}
+                  title={`VAT confidence: ${vatConf}%`}
+                >
+                  {vatConf}%
+                </span>
+              </div>
               <div
                 className={
                   showOriginal
@@ -666,10 +757,21 @@ export function ReceiptCard({
                 />
               </div>
             </div>
+
+            {/* Net Subtotal */}
             <div className="min-w-0">
-              <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wide block truncate">
-                Net Subtotal
-              </span>
+              <div className="flex items-center justify-between gap-1 mb-1">
+                <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wide truncate">
+                  Net Subtotal
+                </span>
+                <span
+                  style={subtotalConfStyle.vars}
+                  className={`text-[11px] font-bold tabular-nums ${subtotalConfStyle.className}`}
+                  title={`Subtotal confidence: ${subtotalConf}%`}
+                >
+                  {subtotalConf}%
+                </span>
+              </div>
               <div
                 className={
                   showOriginal
@@ -689,10 +791,21 @@ export function ReceiptCard({
                 />
               </div>
             </div>
+
+            {/* Service Charge */}
             <div className="min-w-0">
-              <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wide block truncate">
-                Service Charge
-              </span>
+              <div className="flex items-center justify-between gap-1 mb-1">
+                <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wide truncate">
+                  Service Charge
+                </span>
+                <span
+                  style={serviceChargeConfStyle.vars}
+                  className={`text-[11px] font-bold tabular-nums ${serviceChargeConfStyle.className}`}
+                  title={`Service charge confidence: ${serviceChargeConf}%`}
+                >
+                  {serviceChargeConf}%
+                </span>
+              </div>
               <div
                 className={
                   showOriginal
@@ -714,7 +827,15 @@ export function ReceiptCard({
             </div>
           </div>
 
-          {/* Line Items (Editable) */}
+          {/* Discreet Mathematical Inconsistency Notice */}
+          {mathWarning && (
+            <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 font-medium px-1 -mt-2 mb-3">
+              <span className="shrink-0 text-xs">⚠️</span>
+              <span className="truncate">{mathWarning}</span>
+            </div>
+          )}
+
+          {/* Line Items with Line-by-Line Color Coding */}
           <div className="mb-4 space-y-2 text-sm border-t border-zinc-100 dark:border-zinc-800 pt-3">
             <div className="flex justify-between items-center mb-1">
               <div className="flex items-center gap-2">
@@ -769,101 +890,129 @@ export function ReceiptCard({
 
             {isItemsVisible && (
               r.lineItems && r.lineItems.length > 0 ? (
-                r.lineItems.map((item, iIdx) => (
-                  <div
-                    key={iIdx}
-                    className="flex items-center justify-between gap-2 text-zinc-700 dark:text-zinc-300 font-medium group"
-                  >
-                    <div className="flex items-center gap-1 flex-1 min-w-0">
-                      {/* Editable Quantity */}
-                      {editingLineItem?.lineIdx === iIdx &&
-                      editingLineItem?.field === 'quantity' ? (
-                        <input
-                          type="number"
-                          value={lineItemDraft}
-                          onChange={(e) => setLineItemDraft(e.target.value)}
-                          onBlur={commitLineItemEdit}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') commitLineItemEdit();
-                            if (e.key === 'Escape') setEditingLineItem(null);
-                          }}
-                          autoFocus
-                          className="w-10 bg-white dark:bg-zinc-800 border-2 border-emerald-500 rounded px-1 text-center outline-none"
-                        />
-                      ) : (
-                        <span
-                          onClick={() => startLineItemEdit(iIdx, 'quantity')}
-                          className="cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded px-1 transition"
-                          title="Click to edit quantity"
-                        >
-                          {item.quantity}x
-                        </span>
-                      )}
-
-                      {/* Editable Description */}
-                      {editingLineItem?.lineIdx === iIdx &&
-                      editingLineItem?.field === 'description' ? (
-                        <input
-                          type="text"
-                          value={lineItemDraft}
-                          onChange={(e) => setLineItemDraft(e.target.value)}
-                          onBlur={commitLineItemEdit}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') commitLineItemEdit();
-                            if (e.key === 'Escape') setEditingLineItem(null);
-                          }}
-                          autoFocus
-                          className="flex-1 bg-white dark:bg-zinc-800 border-2 border-emerald-500 rounded px-2 outline-none"
-                        />
-                      ) : (
-                        <span
-                          onClick={() => startLineItemEdit(iIdx, 'description')}
-                          className="cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded px-1 truncate transition"
-                          title="Click to edit description"
-                        >
-                          {item.description}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-1 shrink-0">
-                      {/* Editable Price */}
-                      {editingLineItem?.lineIdx === iIdx &&
-                      editingLineItem?.field === 'totalPrice' ? (
-                        <input
-                          type="number"
-                          value={lineItemDraft}
-                          onChange={(e) => setLineItemDraft(e.target.value)}
-                          onBlur={commitLineItemEdit}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') commitLineItemEdit();
-                            if (e.key === 'Escape') setEditingLineItem(null);
-                          }}
-                          autoFocus
-                          className="w-24 bg-white dark:bg-zinc-800 border-2 border-emerald-500 rounded px-2 text-right outline-none"
-                        />
-                      ) : (
-                        <span
-                          onClick={() => startLineItemEdit(iIdx, 'totalPrice')}
-                          className="font-bold cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded px-1 transition"
-                          title="Click to edit price"
-                        >
-                          £{item.totalPrice.toFixed(2)}
-                        </span>
-                      )}
-
-                      {/* Delete Line Item */}
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteLineItem(iIdx)}
-                        className="opacity-0 group-hover:opacity-100 h-6 w-6 rounded flex items-center justify-center text-zinc-400 hover:text-rose-500 transition text-xs"
-                        title="Remove item"
-                      >
-                        ✕
-                      </button>
+                <div className="space-y-1.5">
+                  {/* Subtle Confidence Hint */}
+                  <div className="flex items-center justify-between text-[11px] font-medium text-zinc-400 pb-1 border-b border-zinc-100 dark:border-zinc-800/60">
+                    <span className="text-[10px] uppercase tracking-wider">Item OCR Accuracy</span>
+                    <div className="flex items-center gap-1.5 text-[10px]">
+                      <span className="text-[hsl(0,82%,45%)] font-bold">0%</span>
+                      <span>→</span>
+                      <span className="text-[hsl(100,82%,36%)] dark:text-[hsl(100,82%,54%)] font-bold">80%</span>
+                      <span>→</span>
+                      <span className="text-[hsl(138,82%,34%)] dark:text-[hsl(138,82%,54%)] font-bold">100%</span>
                     </div>
                   </div>
-                ))
+
+                  {r.lineItems.map((item, iIdx) => {
+                    const itemScore = userVerified ? 100 : (item.confidence ?? r.confidence);
+                    const itemConfStyle = getConfidenceColorInfo(itemScore, userVerified);
+
+                    return (
+                      <div
+                        key={iIdx}
+                        className="flex items-center justify-between gap-2 p-1.5 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition font-medium group"
+                      >
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          {/* Editable Quantity */}
+                          {editingLineItem?.lineIdx === iIdx &&
+                          editingLineItem?.field === 'quantity' ? (
+                            <input
+                              type="number"
+                              value={lineItemDraft}
+                              onChange={(e) => setLineItemDraft(e.target.value)}
+                              onBlur={commitLineItemEdit}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') commitLineItemEdit();
+                                if (e.key === 'Escape') setEditingLineItem(null);
+                              }}
+                              autoFocus
+                              className="w-10 bg-white dark:bg-zinc-800 border-2 border-emerald-500 rounded px-1 text-center outline-none"
+                            />
+                          ) : (
+                            <span
+                              onClick={() => startLineItemEdit(iIdx, 'quantity')}
+                              className="cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded px-1 transition text-xs font-bold"
+                              title="Click to edit quantity"
+                            >
+                              {item.quantity}x
+                            </span>
+                          )}
+
+                          {/* Editable Description */}
+                          {editingLineItem?.lineIdx === iIdx &&
+                          editingLineItem?.field === 'description' ? (
+                            <input
+                              type="text"
+                              value={lineItemDraft}
+                              onChange={(e) => setLineItemDraft(e.target.value)}
+                              onBlur={commitLineItemEdit}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') commitLineItemEdit();
+                                if (e.key === 'Escape') setEditingLineItem(null);
+                              }}
+                              autoFocus
+                              className="flex-1 bg-white dark:bg-zinc-800 border-2 border-emerald-500 rounded px-2 outline-none"
+                            />
+                          ) : (
+                            <span
+                              onClick={() => startLineItemEdit(iIdx, 'description')}
+                              className="cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded px-1 truncate transition"
+                              title="Click to edit description"
+                            >
+                              {item.description}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {/* Editable Price */}
+                          {editingLineItem?.lineIdx === iIdx &&
+                          editingLineItem?.field === 'totalPrice' ? (
+                            <input
+                              type="number"
+                              value={lineItemDraft}
+                              onChange={(e) => setLineItemDraft(e.target.value)}
+                              onBlur={commitLineItemEdit}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') commitLineItemEdit();
+                                if (e.key === 'Escape') setEditingLineItem(null);
+                              }}
+                              autoFocus
+                              className="w-24 bg-white dark:bg-zinc-800 border-2 border-emerald-500 rounded px-2 text-right outline-none"
+                            />
+                          ) : (
+                            <span
+                              onClick={() => startLineItemEdit(iIdx, 'totalPrice')}
+                              className="font-bold cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded px-1 transition"
+                              title="Click to edit price"
+                            >
+                              £{item.totalPrice.toFixed(2)}
+                            </span>
+                          )}
+
+                          {/* Discreet Color-Coded Confidence Percentage */}
+                          <span
+                            style={itemConfStyle.vars}
+                            className={`text-xs font-bold tabular-nums shrink-0 ml-1 ${itemConfStyle.className}`}
+                            title={`Item confidence: ${itemScore}%`}
+                          >
+                            {itemScore}%
+                          </span>
+
+                          {/* Delete Line Item */}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteLineItem(iIdx)}
+                            className="opacity-0 group-hover:opacity-100 h-6 w-6 rounded flex items-center justify-center text-zinc-400 hover:text-rose-500 transition text-xs"
+                            title="Remove item"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               ) : (
                 <p className="text-xs text-zinc-400 italic">
                   No line items detected. Click &quot;+ Add Item&quot; to add manually.

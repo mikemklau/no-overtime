@@ -9,8 +9,12 @@ import { exportReceiptsToExcel, type ExportReceiptData } from '@/lib/excel-expor
 import { triggerHaptic } from '@/lib/haptics';
 import { OtpModal } from './OtpModal';
 import { UpgradeModal } from './UpgradeModal';
+import { RestoreDraftModal, type StoredReceiptsDraft } from './RestoreDraftModal';
 import { ReceiptCard } from './ReceiptCard';
 import { createClient } from '@/lib/supabase/client';
+
+const DRAFT_STORAGE_KEY = 'no_overtime_receipts_draft_v1';
+const DRAFT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 // ─────────────────────────────────────────────────────────────
 // Sample UK receipts – kept for instant no-image demo testing
@@ -108,9 +112,13 @@ export function ReceiptScanner() {
   const [isUpgradeOpen, setIsUpgradeOpen] = useState(false);
   const [quotaInfo, setQuotaInfo] = useState({ used: 5, limit: 5 });
 
+  // Refresh persistence draft state
+  const [pendingDraft, setPendingDraft] = useState<StoredReceiptsDraft | null>(null);
+  const isDraftRestoredRef = useRef(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ─── Initialise session & device info on mount ──────────
+  // ─── Initialise session, device info & restore draft on mount ──────────
   useEffect(() => {
     async function init() {
       // Device ID for unauthenticated quota tracking
@@ -132,8 +140,68 @@ export function ReceiptScanner() {
       } catch {
         // Supabase not yet connected – offline mode is still fully functional
       }
+
+      // Check for saved unfinished draft in localStorage
+      try {
+        const saved = localStorage.getItem(DRAFT_STORAGE_KEY);
+        if (saved) {
+          const parsed: StoredReceiptsDraft = JSON.parse(saved);
+          const isFresh = Date.now() - parsed.savedAt < DRAFT_TTL_MS;
+          if (isFresh && parsed.receipts && parsed.receipts.length > 0) {
+            setPendingDraft(parsed);
+          } else {
+            localStorage.removeItem(DRAFT_STORAGE_KEY);
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to parse saved draft from localStorage', e);
+        localStorage.removeItem(DRAFT_STORAGE_KEY);
+      } finally {
+        isDraftRestoredRef.current = true;
+      }
     }
     init();
+  }, []);
+
+  // ─── Auto-save receipts draft to localStorage on change ──────────
+  useEffect(() => {
+    if (!isDraftRestoredRef.current) return;
+
+    if (receipts.length > 0) {
+      try {
+        const draftPayload: StoredReceiptsDraft = {
+          version: 1,
+          savedAt: Date.now(),
+          scanMode,
+          receipts: receipts.map((r) => {
+            // Strip non-serializable File/Blob objects
+            const { sourceFile, ...rest } = r;
+            return rest;
+          }),
+        };
+        localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draftPayload));
+      } catch (err) {
+        console.warn('Failed to auto-save draft to localStorage', err);
+      }
+    } else {
+      // User cleared all receipts
+      localStorage.removeItem(DRAFT_STORAGE_KEY);
+    }
+  }, [receipts, scanMode]);
+
+  // ─── Restore / Discard Draft Handlers ──────────────────
+  const handleRestoreDraft = useCallback(() => {
+    if (!pendingDraft) return;
+    setReceipts(pendingDraft.receipts);
+    setScanMode(pendingDraft.scanMode);
+    setPendingDraft(null);
+  }, [pendingDraft]);
+
+  const handleDiscardDraft = useCallback(() => {
+    try {
+      localStorage.removeItem(DRAFT_STORAGE_KEY);
+    } catch {}
+    setPendingDraft(null);
   }, []);
 
   // ─── Process raw OCR text through the UK parser ─────────
@@ -149,8 +217,10 @@ export function ReceiptScanner() {
       totalAmount: parsed.totalAmount,
       confidence: parsed.confidence,
       essentialsConfidence: parsed.essentialsConfidence,
+      fieldConfidence: parsed.fieldConfidence,
       status: parsed.confidence >= 90 ? 'verified' : 'needs_review',
       rawText: text,
+      warnings: parsed.warnings,
       lineItems: parsed.lineItems,
     };
     setReceipts((prev) => [entry, ...prev]);
@@ -186,7 +256,17 @@ export function ReceiptScanner() {
                 totalAmount: data.total ?? r.totalAmount,
                 confidence: data.confidence,
                 status: data.status,
-                lineItems: data.lineItems?.length ? data.lineItems : r.lineItems,
+                fieldConfidence: {
+                  merchantName: 98,
+                  receiptDate: 98,
+                  totalAmount: 99,
+                  vatAmount: 98,
+                  subtotal: 98,
+                  serviceCharge: 95,
+                },
+                lineItems: data.lineItems?.length
+                  ? data.lineItems.map((it) => ({ ...it, confidence: it.confidence ?? 95 }))
+                  : r.lineItems,
               }
             : r
         )
@@ -228,9 +308,11 @@ export function ReceiptScanner() {
               totalAmount: parsed.totalAmount,
               confidence: parsed.confidence,
               essentialsConfidence: parsed.essentialsConfidence,
+              fieldConfidence: parsed.fieldConfidence,
               status: parsed.confidence >= 90 ? 'verified' : 'needs_review',
               sourceFile: file,
               rawText: ocr.text,
+              warnings: parsed.warnings,
               lineItems: parsed.lineItems,
             };
             setReceipts((prev) => [entry, ...prev]);
@@ -630,6 +712,13 @@ export function ReceiptScanner() {
       </div>
 
       {/* Modals */}
+      <RestoreDraftModal
+        isOpen={Boolean(pendingDraft)}
+        draft={pendingDraft}
+        onRestore={handleRestoreDraft}
+        onDiscard={handleDiscardDraft}
+      />
+
       <OtpModal
         isOpen={isOtpOpen}
         onClose={() => setIsOtpOpen(false)}

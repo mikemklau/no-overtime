@@ -2,7 +2,7 @@
  * receipt-to-json adapter
  *
  * Connects no-overtime-app to the dedicated 'receipt-to-json' package
- * (D:\dev\reciept-to-json), providing typed interfaces and mapping
+ * (D:\dev\receipt-to-json), providing typed interfaces and mapping
  * OCR lines / raw text into the application's ParsedReceipt model.
  */
 
@@ -19,6 +19,7 @@ export interface ParsedLineItem {
   unitPrice: number;
   totalPrice: number;
   category: string | null;
+  confidence?: number;              // 0–100 item confidence score
 }
 
 export interface ParsedReceipt {
@@ -32,7 +33,60 @@ export interface ParsedReceipt {
   lineItems: ParsedLineItem[];
   confidence: number;               // 0–100 (full, includes line items)
   essentialsConfidence?: number;     // 0–100 (UK accounting: merchant + date + total + VAT only)
+  fieldConfidence?: {
+    merchantName?: number;
+    receiptDate?: number;
+    totalAmount?: number;
+    vatAmount?: number;
+    subtotal?: number;
+    serviceCharge?: number;
+  };
+  warnings?: Array<{ code: string; message: string; severity?: string }>;
   rawText: string;
+}
+
+export interface MathCheckResult {
+  hasMismatch: boolean;
+  message?: string;
+}
+
+export function checkReceiptMath(r: {
+  totalAmount: number | null;
+  subtotal: number | null;
+  vatAmount: number | null;
+  serviceCharge: number | null;
+}): MathCheckResult {
+  const total = r.totalAmount ?? 0;
+  const subtotal = r.subtotal;
+  const vat = r.vatAmount ?? 0;
+  const service = r.serviceCharge ?? 0;
+
+  if (total <= 0) return { hasMismatch: false };
+
+  // 1. VAT cannot exceed total
+  if (vat > total) {
+    return {
+      hasMismatch: true,
+      message: `VAT (£${vat.toFixed(2)}) exceeds Total (£${total.toFixed(2)})`,
+    };
+  }
+
+  // 2. Net Subtotal + VAT (+ Service) vs Total
+  if (subtotal != null && subtotal > 0 && vat > 0) {
+    const netPlusVat = Math.round((subtotal + vat + service) * 100) / 100;
+    const isGross = Math.abs(subtotal - total) <= 0.02;
+
+    if (Math.abs(netPlusVat - total) <= 0.02 || isGross) {
+      return { hasMismatch: false };
+    }
+
+    return {
+      hasMismatch: true,
+      message: `Net (£${subtotal.toFixed(2)}) + VAT (£${vat.toFixed(2)})${service > 0 ? ` + Service (£${service.toFixed(2)})` : ''} ≠ Total (£${total.toFixed(2)})`,
+    };
+  }
+
+  return { hasMismatch: false };
 }
 
 /**
@@ -50,6 +104,18 @@ export function receiptToParsedReceipt(receipt: Receipt, fallbackRawText = ''): 
   const totalWeight = essentialScores.reduce((s, e) => s + e.weight, 0);
   const essentialsRaw = essentialScores.reduce((s, e) => s + e.score * e.weight, 0) / totalWeight;
 
+  const merchantConf = receipt.merchant.name === 'Unknown merchant' || !receipt.merchant.name
+    ? 20
+    : Math.round((receipt.merchant.confidence ?? receipt.confidence.merchant ?? 0.8) * 100);
+
+  const dateConf = receipt.dateTime.date === '1970-01-01' || !receipt.dateTime.date
+    ? 15
+    : Math.round((receipt.dateTime.confidence ?? receipt.confidence.dateTime ?? 0.8) * 100);
+
+  const totalsConf = Math.round((receipt.confidence.totals ?? 0.8) * 100);
+  const taxConf = Math.round((receipt.confidence.tax ?? receipt.confidence.totals ?? 0.8) * 100);
+  const serviceChargeConf = Math.round((receipt.confidence.serviceCharge ?? 0.8) * 100);
+
   return {
     merchantName: receipt.merchant.name === 'Unknown merchant' ? null : receipt.merchant.name,
     receiptDate: receipt.dateTime.date === '1970-01-01' ? null : receipt.dateTime.date,
@@ -60,6 +126,19 @@ export function receiptToParsedReceipt(receipt: Receipt, fallbackRawText = ''): 
     totalAmount: receipt.totals.grandTotal,
     confidence: Math.round((receipt.confidence.overall ?? 0.5) * 100),
     essentialsConfidence: Math.round(essentialsRaw * 100),
+    fieldConfidence: {
+      merchantName: merchantConf,
+      receiptDate: dateConf,
+      totalAmount: totalsConf,
+      vatAmount: taxConf,
+      subtotal: totalsConf,
+      serviceCharge: serviceChargeConf,
+    },
+    warnings: receipt.warnings.map((w) => ({
+      code: w.code,
+      message: w.message,
+      severity: w.severity,
+    })),
     rawText: fallbackRawText || receipt.rawText || '',
     lineItems: receipt.lineItems.map((item) => ({
       description: item.description,
@@ -67,6 +146,7 @@ export function receiptToParsedReceipt(receipt: Receipt, fallbackRawText = ''): 
       unitPrice: item.unitPrice ?? item.totalPrice,
       totalPrice: item.totalPrice,
       category: null,
+      confidence: Math.round((item.confidence ?? 0.8) * 100),
     })),
   };
 }

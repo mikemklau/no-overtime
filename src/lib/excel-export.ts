@@ -12,15 +12,25 @@ export interface ExportReceiptData {
   totalAmount: number | null;
   confidence: number;
   essentialsConfidence?: number;
+  fieldConfidence?: {
+    merchantName?: number;
+    receiptDate?: number;
+    totalAmount?: number;
+    vatAmount?: number;
+    subtotal?: number;
+    serviceCharge?: number;
+  };
   status: string;
   sourceFile?: File | Blob;
   rawText?: string;
+  warnings?: Array<{ code: string; message: string; severity?: string }>;
   lineItems: {
     description: string;
     quantity: number;
     unitPrice: number;
     totalPrice: number;
     category: string | null;
+    confidence?: number;
   }[];
 }
 
