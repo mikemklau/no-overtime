@@ -376,7 +376,7 @@ export function ReceiptScanner() {
 
   // ─── Render ───────────────────────────────────────────────
   return (
-    <div className="flex flex-col flex-1 w-full max-w-4xl mx-auto px-4 py-6 pb-32">
+    <div className="flex flex-col flex-1 w-full max-w-5xl mx-auto px-4 py-6 pb-32">
       {/* Header */}
       <div className="flex justify-between items-center mb-6">
         <div>
@@ -516,7 +516,7 @@ export function ReceiptScanner() {
 
       {/* Sticky Bottom Excel Export Bar */}
       <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md border-t border-zinc-200 dark:border-zinc-800 p-4 shadow-2xl">
-        <div className="max-w-4xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="hidden md:block">
             <p className="text-sm font-bold text-foreground">Ready for HMRC Filing</p>
             <p className="text-xs text-zinc-500">

@@ -110,7 +110,7 @@ function EditableField({
   return (
     <span
       onClick={handleStartEdit}
-      className={`cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded-lg px-1 -mx-1 transition group ${className}`}
+      className={`cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded-lg px-1 -mx-1 transition group inline-block max-w-full truncate align-bottom ${className}`}
       title="Click to edit"
     >
       {prefix}{displayValue ?? value}
@@ -444,10 +444,24 @@ export function ReceiptCard({
 
         <div className="flex flex-col flex-1 min-w-0">
           {/* Editable Financial Summary Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 rounded-2xl bg-zinc-50 dark:bg-zinc-800/50 mb-4">
-            <div>
-              <span className="text-xs font-bold text-zinc-500 uppercase">Total (GBP)</span>
-              <div className="text-3xl md:text-4xl font-black text-foreground">
+          <div
+            className={
+              showOriginal
+                ? 'grid grid-cols-2 gap-3 p-3.5 rounded-2xl bg-zinc-50 dark:bg-zinc-800/50 mb-4'
+                : 'grid grid-cols-2 md:grid-cols-4 gap-4 p-4 rounded-2xl bg-zinc-50 dark:bg-zinc-800/50 mb-4'
+            }
+          >
+            <div className="min-w-0">
+              <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wide block truncate">
+                Total (GBP)
+              </span>
+              <div
+                className={
+                  showOriginal
+                    ? 'text-2xl md:text-3xl font-black text-foreground'
+                    : 'text-3xl md:text-4xl font-black text-foreground'
+                }
+              >
                 <EditableField
                   value={(r.totalAmount ?? 0).toFixed(2)}
                   fieldName="totalAmount"
@@ -456,13 +470,21 @@ export function ReceiptCard({
                   onCommit={handleFieldCommit}
                   inputType="number"
                   prefix="£"
-                  inputClassName="text-2xl md:text-3xl w-32"
+                  inputClassName={showOriginal ? 'text-xl md:text-2xl w-28' : 'text-2xl md:text-3xl w-32'}
                 />
               </div>
             </div>
-            <div>
-              <span className="text-xs font-bold text-zinc-500 uppercase">UK 20% VAT</span>
-              <div className="text-2xl md:text-3xl font-black text-emerald-600 dark:text-emerald-400">
+            <div className="min-w-0">
+              <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wide block truncate">
+                UK 20% VAT
+              </span>
+              <div
+                className={
+                  showOriginal
+                    ? 'text-xl md:text-2xl font-black text-emerald-600 dark:text-emerald-400'
+                    : 'text-2xl md:text-3xl font-black text-emerald-600 dark:text-emerald-400'
+                }
+              >
                 <EditableField
                   value={(r.vatAmount ?? 0).toFixed(2)}
                   fieldName="vatAmount"
@@ -471,13 +493,21 @@ export function ReceiptCard({
                   onCommit={handleFieldCommit}
                   inputType="number"
                   prefix="£"
-                  inputClassName="text-xl md:text-2xl w-28"
+                  inputClassName={showOriginal ? 'text-lg md:text-xl w-24' : 'text-xl md:text-2xl w-28'}
                 />
               </div>
             </div>
-            <div>
-              <span className="text-xs font-bold text-zinc-500 uppercase">Net Subtotal</span>
-              <div className="text-xl md:text-2xl font-bold text-zinc-700 dark:text-zinc-300">
+            <div className="min-w-0">
+              <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wide block truncate">
+                Net Subtotal
+              </span>
+              <div
+                className={
+                  showOriginal
+                    ? 'text-lg md:text-xl font-bold text-zinc-700 dark:text-zinc-300'
+                    : 'text-xl md:text-2xl font-bold text-zinc-700 dark:text-zinc-300'
+                }
+              >
                 <EditableField
                   value={(r.subtotal ?? 0).toFixed(2)}
                   fieldName="subtotal"
@@ -486,13 +516,21 @@ export function ReceiptCard({
                   onCommit={handleFieldCommit}
                   inputType="number"
                   prefix="£"
-                  inputClassName="text-lg md:text-xl w-28"
+                  inputClassName={showOriginal ? 'text-base md:text-lg w-24' : 'text-lg md:text-xl w-28'}
                 />
               </div>
             </div>
-            <div>
-              <span className="text-xs font-bold text-zinc-500 uppercase">Service Charge</span>
-              <div className="text-xl md:text-2xl font-bold text-zinc-700 dark:text-zinc-300">
+            <div className="min-w-0">
+              <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wide block truncate">
+                Service Charge
+              </span>
+              <div
+                className={
+                  showOriginal
+                    ? 'text-lg md:text-xl font-bold text-zinc-700 dark:text-zinc-300'
+                    : 'text-xl md:text-2xl font-bold text-zinc-700 dark:text-zinc-300'
+                }
+              >
                 <EditableField
                   value={(r.serviceCharge ?? 0).toFixed(2)}
                   fieldName="serviceCharge"
@@ -501,7 +539,7 @@ export function ReceiptCard({
                   onCommit={handleFieldCommit}
                   inputType="number"
                   prefix="£"
-                  inputClassName="text-lg md:text-xl w-28"
+                  inputClassName={showOriginal ? 'text-base md:text-lg w-24' : 'text-lg md:text-xl w-28'}
                 />
               </div>
             </div>
