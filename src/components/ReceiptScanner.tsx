@@ -9,6 +9,7 @@ import { exportReceiptsToExcel, type ExportReceiptData } from '@/lib/excel-expor
 import { triggerHaptic } from '@/lib/haptics';
 import { OtpModal } from './OtpModal';
 import { UpgradeModal } from './UpgradeModal';
+import { ReceiptCard } from './ReceiptCard';
 import { createClient } from '@/lib/supabase/client';
 
 // ─────────────────────────────────────────────────────────────
@@ -73,30 +74,6 @@ THANK YOU FOR DINING WITH US`,
   },
 ];
 
-// ─────────────────────────────────────────────────────────────
-// Confidence badge helper (DRY – used per receipt card)
-// ─────────────────────────────────────────────────────────────
-function getConfidenceBadge(confidence: number) {
-  if (confidence >= 90) {
-    return {
-      text: '✓ Verified Read',
-      style:
-        'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800',
-    };
-  }
-  if (confidence >= 70) {
-    return {
-      text: '⚠ Check Total',
-      style:
-        'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800',
-    };
-  }
-  return {
-    text: '✕ Needs Attention',
-    style:
-      'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-800',
-  };
-}
 
 // ─────────────────────────────────────────────────────────────
 // Build a full API FormData payload for Cloud AI requests
@@ -353,6 +330,24 @@ export function ReceiptScanner() {
     [userEmail, deviceId, authToken, applyApiResult]
   );
 
+  // ─── Update a receipt in-place (from ReceiptCard edits) ───
+  const handleUpdateReceipt = useCallback(
+    (index: number, updated: ExportReceiptData) => {
+      setReceipts((prev) =>
+        prev.map((r, i) => (i === index ? updated : r))
+      );
+    },
+    []
+  );
+
+  // ─── Delete a single receipt card ─────────────────────────
+  const handleDeleteReceipt = useCallback(
+    (index: number) => {
+      setReceipts((prev) => prev.filter((_, i) => i !== index));
+    },
+    []
+  );
+
   // ─── Excel Export ─────────────────────────────────────────
   const handleExport = async () => {
     triggerHaptic('light');
@@ -503,83 +498,17 @@ export function ReceiptScanner() {
             No receipts scanned yet. Drop a file above or click a test receipt!
           </div>
         ) : (
-          receipts.map((r, idx) => {
-            const badge = getConfidenceBadge(r.confidence);
-            return (
-              <div
-                key={idx}
-                className="rounded-3xl border-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 md:p-6 shadow-sm transition hover:shadow-md select-text"
-              >
-                {/* Merchant + Badge */}
-                <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-                  <div>
-                    <span className="text-xs font-bold text-zinc-500 uppercase tracking-wider">
-                      {r.receiptDate || 'DD/MM/YYYY'}
-                    </span>
-                    <h3 className="text-2xl md:text-3xl font-black text-foreground tracking-tight">
-                      {r.merchantName || 'Unknown Merchant'}
-                    </h3>
-                  </div>
-                  <span className={`inline-flex items-center rounded-xl border px-3.5 py-1.5 text-xs md:text-sm font-black tracking-wide ${badge.style}`}>
-                    {badge.text} ({r.confidence}%)
-                  </span>
-                </div>
-
-                {/* Boomer-proof massive numbers */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 rounded-2xl bg-zinc-50 dark:bg-zinc-800/50 mb-4">
-                  <div>
-                    <span className="text-xs font-bold text-zinc-500 uppercase">Total (GBP)</span>
-                    <p className="text-3xl md:text-4xl font-black text-foreground">
-                      £{(r.totalAmount ?? 0).toFixed(2)}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-xs font-bold text-zinc-500 uppercase">UK 20% VAT</span>
-                    <p className="text-2xl md:text-3xl font-black text-emerald-600 dark:text-emerald-400">
-                      £{(r.vatAmount ?? 0).toFixed(2)}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-xs font-bold text-zinc-500 uppercase">Net Subtotal</span>
-                    <p className="text-xl md:text-2xl font-bold text-zinc-700 dark:text-zinc-300">
-                      £{(r.subtotal ?? 0).toFixed(2)}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-xs font-bold text-zinc-500 uppercase">Service Charge</span>
-                    <p className="text-xl md:text-2xl font-bold text-zinc-700 dark:text-zinc-300">
-                      £{(r.serviceCharge ?? 0).toFixed(2)}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Line Items */}
-                {r.lineItems && r.lineItems.length > 0 && (
-                  <div className="mb-4 space-y-1 text-sm border-t border-zinc-100 dark:border-zinc-800 pt-3">
-                    <span className="text-xs font-bold uppercase text-zinc-400">Line Items:</span>
-                    {r.lineItems.map((item, iIdx) => (
-                      <div key={iIdx} className="flex justify-between text-zinc-700 dark:text-zinc-300 font-medium">
-                        <span>{item.quantity}x {item.description}</span>
-                        <span className="font-bold">£{item.totalPrice.toFixed(2)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Cloud AI Enhancement button */}
-                {r.confidence < 95 && (
-                  <button
-                    type="button"
-                    disabled={isProcessing}
-                    onClick={() => handleEnhanceWithAI(idx, r.sourceFile)}
-                    className="h-12 w-full md:w-auto rounded-xl border-2 border-emerald-600/30 bg-emerald-50 dark:bg-emerald-950/40 px-5 text-sm font-bold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition flex items-center justify-center gap-2 disabled:opacity-50"
-                  >
-                    <span>✨ Enhance with Cloud AI (OpenAI Vision)</span>
-                  </button>
-                )}
-              </div>
-            );
-          })
+          receipts.map((r, idx) => (
+            <ReceiptCard
+              key={idx}
+              receipt={r}
+              index={idx}
+              isProcessing={isProcessing}
+              onUpdate={handleUpdateReceipt}
+              onDelete={handleDeleteReceipt}
+              onEnhanceWithAI={handleEnhanceWithAI}
+            />
+          ))
         )}
       </div>
 
