@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import type { ExportReceiptData } from '@/lib/excel-export';
 import { triggerHaptic } from '@/lib/haptics';
 
@@ -137,9 +137,27 @@ export function ReceiptCard({
   } | null>(null);
   const [lineItemDraft, setLineItemDraft] = useState('');
 
+  // Original Document Viewer state
+  const [showOriginal, setShowOriginal] = useState(false);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [zoomLevel, setZoomLevel] = useState<number>(1);
+
   const r = receipt;
   const userVerified = r.status === 'user_verified';
   const badge = getConfidenceBadge(r.confidence, userVerified);
+
+  // ─── Object URL for Original Image ─────────────────────────
+  useEffect(() => {
+    if (r.sourceFile && r.sourceFile instanceof Blob) {
+      const url = URL.createObjectURL(r.sourceFile);
+      setImageUrl(url);
+      return () => {
+        URL.revokeObjectURL(url);
+      };
+    } else {
+      setImageUrl(null);
+    }
+  }, [r.sourceFile]);
 
   // ─── Field Commit Handler ─────────────────────────────────
   const handleFieldCommit = useCallback(
@@ -262,10 +280,100 @@ export function ReceiptCard({
     triggerHaptic('warning');
   };
 
+  // ─── Original Document Viewer Sub-component ───────────────
+  const originalViewer = (
+    <div className="rounded-2xl border-2 border-emerald-500/30 bg-zinc-50 dark:bg-zinc-950 p-3 flex flex-col h-full overflow-hidden mb-4 lg:mb-0">
+      {/* Viewer Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 pb-2 mb-2 border-b border-zinc-200 dark:border-zinc-800">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+            <span>📄</span> Original Document
+          </span>
+          {imageUrl && (
+            <div className="flex items-center rounded-lg bg-zinc-200 dark:bg-zinc-800 px-1 py-0.5 text-xs font-bold text-zinc-600 dark:text-zinc-300">
+              <button
+                type="button"
+                onClick={() => setZoomLevel((z) => Math.max(0.75, Math.round((z - 0.25) * 100) / 100))}
+                className="px-1.5 py-0.5 hover:text-foreground transition"
+                title="Zoom out"
+              >
+                −
+              </button>
+              <span className="px-1 text-[11px] font-mono">{Math.round(zoomLevel * 100)}%</span>
+              <button
+                type="button"
+                onClick={() => setZoomLevel((z) => Math.min(2.5, Math.round((z + 0.25) * 100) / 100))}
+                className="px-1.5 py-0.5 hover:text-foreground transition"
+                title="Zoom in"
+              >
+                +
+              </button>
+              {zoomLevel !== 1 && (
+                <button
+                  type="button"
+                  onClick={() => setZoomLevel(1)}
+                  className="ml-1 px-1 text-[10px] text-zinc-400 hover:text-foreground underline transition"
+                  title="Reset zoom"
+                >
+                  Reset
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          {imageUrl && (
+            <a
+              href={imageUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-0.5"
+              title="Open full image in new tab"
+            >
+              <span>↗ Full Tab</span>
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setShowOriginal(false);
+              triggerHaptic('light');
+            }}
+            className="text-xs font-bold text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 px-2 py-1 rounded-md hover:bg-zinc-200 dark:hover:bg-zinc-800 transition"
+            title="Close original preview"
+          >
+            ✕ Close
+          </button>
+        </div>
+      </div>
+
+      {/* Document Body */}
+      {imageUrl ? (
+        <div className="relative overflow-auto max-h-[520px] min-h-[260px] rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-200/50 dark:bg-black/50 p-2 flex items-start justify-center">
+          <img
+            src={imageUrl}
+            alt="Original scanned document"
+            style={{ transform: `scale(${zoomLevel})`, transformOrigin: 'top center' }}
+            className="max-w-full h-auto object-contain rounded shadow transition-transform duration-150"
+          />
+        </div>
+      ) : r.rawText ? (
+        <div className="overflow-auto max-h-[450px] p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 font-mono text-xs leading-relaxed text-zinc-700 dark:text-zinc-300 whitespace-pre">
+          {r.rawText}
+        </div>
+      ) : (
+        <div className="p-8 text-center text-sm text-zinc-400 italic">
+          No image file was attached to this receipt.
+        </div>
+      )}
+    </div>
+  );
+
   // ─── Render ───────────────────────────────────────────────
   return (
     <div className="rounded-3xl border-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 md:p-6 shadow-sm transition hover:shadow-md select-text">
-      {/* Top Row: Merchant + Badge + Delete */}
+      {/* Top Row: Merchant + Badges + Toggle Original + Delete */}
       <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
         <div className="flex-1 min-w-0">
           <EditableField
@@ -290,12 +398,31 @@ export function ReceiptCard({
             inputClassName="text-2xl md:text-3xl w-full max-w-sm"
           />
         </div>
+
         <div className="flex items-center gap-2 shrink-0">
+          {/* Toggle View Original Button */}
+          <button
+            type="button"
+            onClick={() => {
+              setShowOriginal((prev) => !prev);
+              triggerHaptic('light');
+            }}
+            className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs md:text-sm font-black transition ${
+              showOriginal
+                ? 'border-emerald-500 bg-emerald-500 text-white shadow-sm'
+                : 'border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:border-emerald-500 hover:text-emerald-600'
+            }`}
+            title="Toggle original document scan comparison"
+          >
+            <span>{showOriginal ? '✕ Hide Scan' : '📄 View Original'}</span>
+          </button>
+
           <span
             className={`inline-flex items-center rounded-xl border px-3.5 py-1.5 text-xs md:text-sm font-black tracking-wide ${badge.style}`}
           >
             {badge.text} ({userVerified ? 100 : r.confidence}%)
           </span>
+
           <button
             type="button"
             onClick={handleDeleteCard}
@@ -307,209 +434,236 @@ export function ReceiptCard({
         </div>
       </div>
 
-      {/* Editable Financial Summary Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 rounded-2xl bg-zinc-50 dark:bg-zinc-800/50 mb-4">
-        <div>
-          <span className="text-xs font-bold text-zinc-500 uppercase">Total (GBP)</span>
-          <div className="text-3xl md:text-4xl font-black text-foreground">
-            <EditableField
-              value={(r.totalAmount ?? 0).toFixed(2)}
-              fieldName="totalAmount"
-              editingField={editingField}
-              onStartEdit={setEditingField}
-              onCommit={handleFieldCommit}
-              inputType="number"
-              prefix="£"
-              inputClassName="text-2xl md:text-3xl w-32"
-            />
+      {/* Main Content Area: Side-by-side comparison on lg screens when showOriginal is active */}
+      <div className={showOriginal ? 'grid grid-cols-1 lg:grid-cols-2 gap-6 items-start' : ''}>
+        {showOriginal && (
+          <div className="w-full lg:sticky lg:top-4">
+            {originalViewer}
           </div>
-        </div>
-        <div>
-          <span className="text-xs font-bold text-zinc-500 uppercase">UK 20% VAT</span>
-          <div className="text-2xl md:text-3xl font-black text-emerald-600 dark:text-emerald-400">
-            <EditableField
-              value={(r.vatAmount ?? 0).toFixed(2)}
-              fieldName="vatAmount"
-              editingField={editingField}
-              onStartEdit={setEditingField}
-              onCommit={handleFieldCommit}
-              inputType="number"
-              prefix="£"
-              inputClassName="text-xl md:text-2xl w-28"
-            />
-          </div>
-        </div>
-        <div>
-          <span className="text-xs font-bold text-zinc-500 uppercase">Net Subtotal</span>
-          <div className="text-xl md:text-2xl font-bold text-zinc-700 dark:text-zinc-300">
-            <EditableField
-              value={(r.subtotal ?? 0).toFixed(2)}
-              fieldName="subtotal"
-              editingField={editingField}
-              onStartEdit={setEditingField}
-              onCommit={handleFieldCommit}
-              inputType="number"
-              prefix="£"
-              inputClassName="text-lg md:text-xl w-28"
-            />
-          </div>
-        </div>
-        <div>
-          <span className="text-xs font-bold text-zinc-500 uppercase">Service Charge</span>
-          <div className="text-xl md:text-2xl font-bold text-zinc-700 dark:text-zinc-300">
-            <EditableField
-              value={(r.serviceCharge ?? 0).toFixed(2)}
-              fieldName="serviceCharge"
-              editingField={editingField}
-              onStartEdit={setEditingField}
-              onCommit={handleFieldCommit}
-              inputType="number"
-              prefix="£"
-              inputClassName="text-lg md:text-xl w-28"
-            />
-          </div>
-        </div>
-      </div>
+        )}
 
-      {/* Line Items (Editable) */}
-      <div className="mb-4 space-y-1 text-sm border-t border-zinc-100 dark:border-zinc-800 pt-3">
-        <div className="flex justify-between items-center mb-2">
-          <span className="text-xs font-bold uppercase text-zinc-400">Line Items:</span>
-          <button
-            type="button"
-            onClick={handleAddLineItem}
-            className="text-xs font-bold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 transition"
-          >
-            + Add Item
-          </button>
-        </div>
-        {r.lineItems && r.lineItems.length > 0 ? (
-          r.lineItems.map((item, iIdx) => (
-            <div
-              key={iIdx}
-              className="flex items-center justify-between gap-2 text-zinc-700 dark:text-zinc-300 font-medium group"
-            >
-              <div className="flex items-center gap-1 flex-1 min-w-0">
-                {/* Editable Quantity */}
-                {editingLineItem?.lineIdx === iIdx &&
-                editingLineItem?.field === 'quantity' ? (
-                  <input
-                    type="number"
-                    value={lineItemDraft}
-                    onChange={(e) => setLineItemDraft(e.target.value)}
-                    onBlur={commitLineItemEdit}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') commitLineItemEdit();
-                      if (e.key === 'Escape') setEditingLineItem(null);
-                    }}
-                    autoFocus
-                    className="w-10 bg-white dark:bg-zinc-800 border-2 border-emerald-500 rounded px-1 text-center outline-none"
-                  />
-                ) : (
-                  <span
-                    onClick={() => startLineItemEdit(iIdx, 'quantity')}
-                    className="cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded px-1 transition"
-                    title="Click to edit quantity"
-                  >
-                    {item.quantity}x
-                  </span>
-                )}
-
-                {/* Editable Description */}
-                {editingLineItem?.lineIdx === iIdx &&
-                editingLineItem?.field === 'description' ? (
-                  <input
-                    type="text"
-                    value={lineItemDraft}
-                    onChange={(e) => setLineItemDraft(e.target.value)}
-                    onBlur={commitLineItemEdit}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') commitLineItemEdit();
-                      if (e.key === 'Escape') setEditingLineItem(null);
-                    }}
-                    autoFocus
-                    className="flex-1 bg-white dark:bg-zinc-800 border-2 border-emerald-500 rounded px-2 outline-none"
-                  />
-                ) : (
-                  <span
-                    onClick={() => startLineItemEdit(iIdx, 'description')}
-                    className="cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded px-1 truncate transition"
-                    title="Click to edit description"
-                  >
-                    {item.description}
-                  </span>
-                )}
-              </div>
-
-              <div className="flex items-center gap-1 shrink-0">
-                {/* Editable Price */}
-                {editingLineItem?.lineIdx === iIdx &&
-                editingLineItem?.field === 'totalPrice' ? (
-                  <input
-                    type="number"
-                    value={lineItemDraft}
-                    onChange={(e) => setLineItemDraft(e.target.value)}
-                    onBlur={commitLineItemEdit}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') commitLineItemEdit();
-                      if (e.key === 'Escape') setEditingLineItem(null);
-                    }}
-                    autoFocus
-                    className="w-24 bg-white dark:bg-zinc-800 border-2 border-emerald-500 rounded px-2 text-right outline-none"
-                  />
-                ) : (
-                  <span
-                    onClick={() => startLineItemEdit(iIdx, 'totalPrice')}
-                    className="font-bold cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded px-1 transition"
-                    title="Click to edit price"
-                  >
-                    £{item.totalPrice.toFixed(2)}
-                  </span>
-                )}
-
-                {/* Delete Line Item */}
-                <button
-                  type="button"
-                  onClick={() => handleDeleteLineItem(iIdx)}
-                  className="opacity-0 group-hover:opacity-100 h-6 w-6 rounded flex items-center justify-center text-zinc-400 hover:text-rose-500 transition text-xs"
-                  title="Remove item"
-                >
-                  ✕
-                </button>
+        <div className="flex flex-col flex-1 min-w-0">
+          {/* Editable Financial Summary Grid */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 rounded-2xl bg-zinc-50 dark:bg-zinc-800/50 mb-4">
+            <div>
+              <span className="text-xs font-bold text-zinc-500 uppercase">Total (GBP)</span>
+              <div className="text-3xl md:text-4xl font-black text-foreground">
+                <EditableField
+                  value={(r.totalAmount ?? 0).toFixed(2)}
+                  fieldName="totalAmount"
+                  editingField={editingField}
+                  onStartEdit={setEditingField}
+                  onCommit={handleFieldCommit}
+                  inputType="number"
+                  prefix="£"
+                  inputClassName="text-2xl md:text-3xl w-32"
+                />
               </div>
             </div>
-          ))
-        ) : (
-          <p className="text-xs text-zinc-400 italic">
-            No line items detected. Click &quot;+ Add Item&quot; to add manually.
-          </p>
-        )}
-      </div>
+            <div>
+              <span className="text-xs font-bold text-zinc-500 uppercase">UK 20% VAT</span>
+              <div className="text-2xl md:text-3xl font-black text-emerald-600 dark:text-emerald-400">
+                <EditableField
+                  value={(r.vatAmount ?? 0).toFixed(2)}
+                  fieldName="vatAmount"
+                  editingField={editingField}
+                  onStartEdit={setEditingField}
+                  onCommit={handleFieldCommit}
+                  inputType="number"
+                  prefix="£"
+                  inputClassName="text-xl md:text-2xl w-28"
+                />
+              </div>
+            </div>
+            <div>
+              <span className="text-xs font-bold text-zinc-500 uppercase">Net Subtotal</span>
+              <div className="text-xl md:text-2xl font-bold text-zinc-700 dark:text-zinc-300">
+                <EditableField
+                  value={(r.subtotal ?? 0).toFixed(2)}
+                  fieldName="subtotal"
+                  editingField={editingField}
+                  onStartEdit={setEditingField}
+                  onCommit={handleFieldCommit}
+                  inputType="number"
+                  prefix="£"
+                  inputClassName="text-lg md:text-xl w-28"
+                />
+              </div>
+            </div>
+            <div>
+              <span className="text-xs font-bold text-zinc-500 uppercase">Service Charge</span>
+              <div className="text-xl md:text-2xl font-bold text-zinc-700 dark:text-zinc-300">
+                <EditableField
+                  value={(r.serviceCharge ?? 0).toFixed(2)}
+                  fieldName="serviceCharge"
+                  editingField={editingField}
+                  onStartEdit={setEditingField}
+                  onCommit={handleFieldCommit}
+                  inputType="number"
+                  prefix="£"
+                  inputClassName="text-lg md:text-xl w-28"
+                />
+              </div>
+            </div>
+          </div>
 
-      {/* Action Buttons Row */}
-      <div className="flex flex-wrap gap-2">
-        {/* Confirm & Verify */}
-        {!userVerified && (
-          <button
-            type="button"
-            onClick={handleConfirmVerify}
-            className="h-12 rounded-xl border-2 border-emerald-600 bg-emerald-600 px-5 text-sm font-bold text-white hover:bg-emerald-700 transition flex items-center justify-center gap-2"
-          >
-            <span>✓ Confirm &amp; Verify</span>
-          </button>
-        )}
+          {/* Line Items (Editable) */}
+          <div className="mb-4 space-y-1 text-sm border-t border-zinc-100 dark:border-zinc-800 pt-3">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-xs font-bold uppercase text-zinc-400">Line Items:</span>
+              <button
+                type="button"
+                onClick={handleAddLineItem}
+                className="text-xs font-bold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 transition"
+              >
+                + Add Item
+              </button>
+            </div>
+            {r.lineItems && r.lineItems.length > 0 ? (
+              r.lineItems.map((item, iIdx) => (
+                <div
+                  key={iIdx}
+                  className="flex items-center justify-between gap-2 text-zinc-700 dark:text-zinc-300 font-medium group"
+                >
+                  <div className="flex items-center gap-1 flex-1 min-w-0">
+                    {/* Editable Quantity */}
+                    {editingLineItem?.lineIdx === iIdx &&
+                    editingLineItem?.field === 'quantity' ? (
+                      <input
+                        type="number"
+                        value={lineItemDraft}
+                        onChange={(e) => setLineItemDraft(e.target.value)}
+                        onBlur={commitLineItemEdit}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') commitLineItemEdit();
+                          if (e.key === 'Escape') setEditingLineItem(null);
+                        }}
+                        autoFocus
+                        className="w-10 bg-white dark:bg-zinc-800 border-2 border-emerald-500 rounded px-1 text-center outline-none"
+                      />
+                    ) : (
+                      <span
+                        onClick={() => startLineItemEdit(iIdx, 'quantity')}
+                        className="cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded px-1 transition"
+                        title="Click to edit quantity"
+                      >
+                        {item.quantity}x
+                      </span>
+                    )}
 
-        {/* Cloud AI Enhancement */}
-        {r.confidence < 95 && !userVerified && (
-          <button
-            type="button"
-            disabled={isProcessing}
-            onClick={() => onEnhanceWithAI(index, r.sourceFile)}
-            className="h-12 rounded-xl border-2 border-emerald-600/30 bg-emerald-50 dark:bg-emerald-950/40 px-5 text-sm font-bold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition flex items-center justify-center gap-2 disabled:opacity-50"
-          >
-            <span>✨ Enhance with Cloud AI</span>
-          </button>
-        )}
+                    {/* Editable Description */}
+                    {editingLineItem?.lineIdx === iIdx &&
+                    editingLineItem?.field === 'description' ? (
+                      <input
+                        type="text"
+                        value={lineItemDraft}
+                        onChange={(e) => setLineItemDraft(e.target.value)}
+                        onBlur={commitLineItemEdit}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') commitLineItemEdit();
+                          if (e.key === 'Escape') setEditingLineItem(null);
+                        }}
+                        autoFocus
+                        className="flex-1 bg-white dark:bg-zinc-800 border-2 border-emerald-500 rounded px-2 outline-none"
+                      />
+                    ) : (
+                      <span
+                        onClick={() => startLineItemEdit(iIdx, 'description')}
+                        className="cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded px-1 truncate transition"
+                        title="Click to edit description"
+                      >
+                        {item.description}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1 shrink-0">
+                    {/* Editable Price */}
+                    {editingLineItem?.lineIdx === iIdx &&
+                    editingLineItem?.field === 'totalPrice' ? (
+                      <input
+                        type="number"
+                        value={lineItemDraft}
+                        onChange={(e) => setLineItemDraft(e.target.value)}
+                        onBlur={commitLineItemEdit}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') commitLineItemEdit();
+                          if (e.key === 'Escape') setEditingLineItem(null);
+                        }}
+                        autoFocus
+                        className="w-24 bg-white dark:bg-zinc-800 border-2 border-emerald-500 rounded px-2 text-right outline-none"
+                      />
+                    ) : (
+                      <span
+                        onClick={() => startLineItemEdit(iIdx, 'totalPrice')}
+                        className="font-bold cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded px-1 transition"
+                        title="Click to edit price"
+                      >
+                        £{item.totalPrice.toFixed(2)}
+                      </span>
+                    )}
+
+                    {/* Delete Line Item */}
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteLineItem(iIdx)}
+                      className="opacity-0 group-hover:opacity-100 h-6 w-6 rounded flex items-center justify-center text-zinc-400 hover:text-rose-500 transition text-xs"
+                      title="Remove item"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-xs text-zinc-400 italic">
+                No line items detected. Click &quot;+ Add Item&quot; to add manually.
+              </p>
+            )}
+          </div>
+
+          {/* Action Buttons Row */}
+          <div className="flex flex-wrap gap-2">
+            {/* Confirm & Verify */}
+            {!userVerified && (
+              <button
+                type="button"
+                onClick={handleConfirmVerify}
+                className="h-12 rounded-xl border-2 border-emerald-600 bg-emerald-600 px-5 text-sm font-bold text-white hover:bg-emerald-700 transition flex items-center justify-center gap-2 shadow-sm"
+              >
+                <span>✓ Confirm &amp; Verify</span>
+              </button>
+            )}
+
+            {/* Cloud AI Enhancement */}
+            {r.confidence < 95 && !userVerified && (
+              <button
+                type="button"
+                disabled={isProcessing}
+                onClick={() => onEnhanceWithAI(index, r.sourceFile)}
+                className="h-12 rounded-xl border-2 border-emerald-600/30 bg-emerald-50 dark:bg-emerald-950/40 px-5 text-sm font-bold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                <span>✨ Enhance with Cloud AI</span>
+              </button>
+            )}
+
+            {/* Bottom View / Hide Original Document Button */}
+            <button
+              type="button"
+              onClick={() => {
+                setShowOriginal((prev) => !prev);
+                triggerHaptic('light');
+              }}
+              className={`h-12 rounded-xl border-2 px-5 text-sm font-bold transition flex items-center justify-center gap-2 ${
+                showOriginal
+                  ? 'border-emerald-600/40 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-200'
+                  : 'border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:border-emerald-500 hover:text-emerald-600'
+              }`}
+            >
+              <span>{showOriginal ? '✕ Hide Original Document' : '📄 Compare Original Document'}</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

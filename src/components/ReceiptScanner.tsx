@@ -147,6 +147,7 @@ export function ReceiptScanner() {
       totalAmount: parsed.totalAmount,
       confidence: parsed.confidence,
       status: parsed.confidence >= 90 ? 'verified' : 'needs_review',
+      rawText: text,
       lineItems: parsed.lineItems,
     };
     setReceipts((prev) => [entry, ...prev]);
@@ -215,6 +216,7 @@ export function ReceiptScanner() {
           confidence: parsed.confidence,
           status: parsed.confidence >= 90 ? 'verified' : 'needs_review',
           sourceFile: file,
+          rawText: ocr.text,
           lineItems: parsed.lineItems,
         };
         setReceipts((prev) => [entry, ...prev]);

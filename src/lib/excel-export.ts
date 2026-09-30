@@ -13,6 +13,7 @@ export interface ExportReceiptData {
   confidence: number;
   status: string;
   sourceFile?: File | Blob;
+  rawText?: string;
   lineItems: {
     description: string;
     quantity: number;
