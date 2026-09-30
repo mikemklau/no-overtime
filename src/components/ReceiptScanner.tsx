@@ -96,6 +96,7 @@ export function ReceiptScanner() {
   const [receipts, setReceipts] = useState<ExportReceiptData[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [ocrProgress, setOcrProgress] = useState<number | null>(null);
+  const [ocrStatusText, setOcrStatusText] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [deviceId, setDeviceId] = useState<string | null>(null);
@@ -193,47 +194,67 @@ export function ReceiptScanner() {
     []
   );
 
-  // ─── Offline OCR: Tesseract.js → UK parser with 2D geometry ────────
-  const handleFileUpload = useCallback(
-    async (file: File) => {
+  // ─── Offline OCR: Tesseract.js → UK parser with 2D geometry (Multi-file batch) ───
+  const handleFilesUpload = useCallback(
+    async (files: File[]) => {
+      if (!files.length) return;
       setIsProcessing(true);
-      setOcrProgress(0);
       triggerHaptic('light');
 
       try {
-        // Run Tesseract in the browser — extract positioned lines with bounding boxes
-        const ocr = await extractOcrFromImage(file, (pct) =>
-          setOcrProgress(pct)
-        );
-        const parsed = parseReceiptWithOcrLines(ocr.lines, ocr.text);
-        const entry: ExportReceiptData = {
-          merchantName: parsed.merchantName,
-          receiptDate: parsed.receiptDate,
-          currency: parsed.currency,
-          subtotal: parsed.subtotal,
-          vatAmount: parsed.vatAmount,
-          serviceCharge: parsed.serviceCharge,
-          totalAmount: parsed.totalAmount,
-          confidence: parsed.confidence,
-          essentialsConfidence: parsed.essentialsConfidence,
-          status: parsed.confidence >= 90 ? 'verified' : 'needs_review',
-          sourceFile: file,
-          rawText: ocr.text,
-          lineItems: parsed.lineItems,
-        };
-        setReceipts((prev) => [entry, ...prev]);
-        triggerHaptic(parsed.confidence >= 90 ? 'success' : 'warning');
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          setOcrStatusText(
+            files.length > 1
+              ? `Reading document ${i + 1} of ${files.length}...`
+              : 'Reading document...'
+          );
+          setOcrProgress(0);
+
+          try {
+            // Run Tesseract in the browser — extract positioned lines with bounding boxes
+            const ocr = await extractOcrFromImage(file, (pct) =>
+              setOcrProgress(pct)
+            );
+            const parsed = parseReceiptWithOcrLines(ocr.lines, ocr.text);
+            const entry: ExportReceiptData = {
+              merchantName: parsed.merchantName,
+              receiptDate: parsed.receiptDate,
+              currency: parsed.currency,
+              subtotal: parsed.subtotal,
+              vatAmount: parsed.vatAmount,
+              serviceCharge: parsed.serviceCharge,
+              totalAmount: parsed.totalAmount,
+              confidence: parsed.confidence,
+              essentialsConfidence: parsed.essentialsConfidence,
+              status: parsed.confidence >= 90 ? 'verified' : 'needs_review',
+              sourceFile: file,
+              rawText: ocr.text,
+              lineItems: parsed.lineItems,
+            };
+            setReceipts((prev) => [entry, ...prev]);
+            triggerHaptic(parsed.confidence >= 90 ? 'success' : 'warning');
+          } catch (fileErr) {
+            console.error(`Failed to process ${file.name}:`, fileErr);
+          }
+        }
       } catch (err) {
         console.error('Offline OCR error:', err);
         triggerHaptic('error');
       } finally {
         setIsProcessing(false);
         setOcrProgress(null);
-        // Reset the file input so the same file can be re-uploaded if needed
+        setOcrStatusText(null);
+        // Reset the file input so the same files can be re-uploaded if needed
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
     },
     []
+  );
+
+  const handleFileUpload = useCallback(
+    (file: File) => handleFilesUpload([file]),
+    [handleFilesUpload]
   );
 
   // ─── Drag & drop ─────────────────────────────────────────
@@ -242,8 +263,12 @@ export function ReceiptScanner() {
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     triggerHaptic('light');
-    const file = e.dataTransfer.files?.[0];
-    if (file) await handleFileUpload(file);
+    const droppedFiles = Array.from(e.dataTransfer.files || []).filter((f) =>
+      f.type.startsWith('image/') || /\.(jpe?g|png|webp|bmp|gif|tiff?)$/i.test(f.name)
+    );
+    if (droppedFiles.length > 0) {
+      await handleFilesUpload(droppedFiles);
+    }
   };
 
   // ─── Mobile Camera Capture via Capacitor ─────────────────
@@ -428,7 +453,7 @@ export function ReceiptScanner() {
         {ocrProgress !== null && (
           <div className="w-full max-w-xs mb-4">
             <div className="flex justify-between text-xs font-bold text-zinc-500 mb-1">
-              <span>Reading document...</span>
+              <span>{ocrStatusText || 'Reading document...'}</span>
               <span>{ocrProgress}%</span>
             </div>
             <div className="h-2 w-full rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
@@ -454,9 +479,11 @@ export function ReceiptScanner() {
             type="file"
             ref={fileInputRef}
             onChange={(e) => {
-              if (e.target.files?.[0]) handleFileUpload(e.target.files[0]);
+              const selected = Array.from(e.target.files || []);
+              if (selected.length > 0) handleFilesUpload(selected);
             }}
             accept="image/*"
+            multiple
             className="hidden"
           />
         </div>
