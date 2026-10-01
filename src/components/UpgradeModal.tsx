@@ -95,9 +95,29 @@ export function UpgradeModal({
         <div className="flex flex-col gap-3">
           <button
             type="button"
-            onClick={() => {
+            onClick={async () => {
               triggerHaptic('success');
-              alert('Stripe Pro checkout integration will be connected with your live subscription tier!');
+              try {
+                const { createClient } = await import('@/lib/supabase/client');
+                const supabase = createClient();
+                const { data: { session } } = await supabase.auth.getSession();
+                
+                const res = await fetch('/api/checkout', {
+                  method: 'POST',
+                  headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}
+                });
+                
+                const data = await res.json();
+                if (data.url) {
+                  window.location.href = data.url;
+                } else {
+                  alert(data.error || 'Checkout failed');
+                }
+              } catch(e) {
+                console.error(e);
+                alert('Could not initiate checkout');
+              }
+
               onClose();
             }}
             className="flex h-14 w-full items-center justify-center rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-6 text-lg font-bold text-white shadow-xl shadow-emerald-600/25 transition-all hover:opacity-95 active:scale-[0.98]"
