@@ -23,7 +23,12 @@ type EditingField = null | 'merchantName' | 'receiptDate' | 'totalAmount' | 'vat
 // ─────────────────────────────────────────────────────────────
 // Confidence badge helper
 // ─────────────────────────────────────────────────────────────
-function getConfidenceBadge(confidence: number, userVerified: boolean, hasMathWarning: boolean, essentialsConfidence?: number, scanMode: 'essentials' | 'detailed' = 'essentials') {
+function getConfidenceBadge(
+  confidence: number,
+  userVerified: boolean,
+  hasMathWarning: boolean,
+  essentialsConfidence?: number
+) {
   if (userVerified) {
     return {
       text: '✓ User Verified',
@@ -33,26 +38,26 @@ function getConfidenceBadge(confidence: number, userVerified: boolean, hasMathWa
     };
   }
 
-  const score = scanMode === 'essentials' ? (essentialsConfidence ?? confidence) : confidence;
+  const score = essentialsConfidence ?? confidence;
 
   if (score >= 90) {
     return {
-      text: scanMode === 'essentials' ? '✓ HMRC Ready' : '✓ Verified Read',
+      text: '✓ HMRC Ready',
       score,
-      subText: scanMode === 'essentials' ? `Items: ${confidence}%` : (essentialsConfidence ? `HMRC: ${essentialsConfidence}%` : undefined),
       style:
         'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800',
     };
   }
-  if (score >= 70) { return { text: hasMathWarning ? '⚠️ Check Totals' : '⚠️ Review Details',
+  if (score >= 70) {
+    return {
+      text: hasMathWarning ? '⚠️ Check Totals' : '⚠️ Review Details',
       score,
-      subText: scanMode === 'essentials' ? `Items: ${confidence}%` : (essentialsConfidence ? `HMRC: ${essentialsConfidence}%` : undefined),
       style:
         'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800',
     };
   }
   return {
-    text: '✕ Needs Attention',
+    text: '❌ Needs Attention',
     score,
     style:
       'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-800',
@@ -267,7 +272,7 @@ export function ReceiptCard({
   const userVerified = r.status === 'user_verified';
   const mathValidation = checkReceiptMath(r);
   const mathWarning = mathValidation.hasMismatch ? mathValidation.message : r.warnings?.find((w) => w.code === 'totals_math_mismatch' || w.code === 'vat_exceeds_total')?.message;
-  const badge = getConfidenceBadge(r.confidence, userVerified, !!mathWarning, r.essentialsConfidence, activeMode);
+  const badge = getConfidenceBadge(r.confidence, userVerified, !!mathWarning, r.essentialsConfidence);
 
   // ─── Field-Level Confidence Scores ──────────────────────────
   const merchantConf = userVerified
@@ -635,11 +640,7 @@ export function ReceiptCard({
             >
               {badge.text} ({badge.score}%)
             </span>
-            {badge.subText && (
-              <span className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 mt-0.5 mr-1 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition">
-                {badge.subText}
-              </span>
-            )}
+            
           </div>
 
           <button
