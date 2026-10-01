@@ -314,10 +314,12 @@ export function ReceiptCard({
       return () => {
         URL.revokeObjectURL(url);
       };
+    } else if (r.imageBase64) {
+      setImageUrl(r.imageBase64);
     } else {
       setImageUrl(null);
     }
-  }, [r.sourceFile]);
+  }, [r.sourceFile, r.imageBase64]);
 
   // ─── Field Commit Handler ─────────────────────────────────
   const handleFieldCommit = useCallback(
