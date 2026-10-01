@@ -22,6 +22,7 @@ export interface ExportReceiptData {
   };
   status: string;
   sourceFile?: File | Blob;
+  imageBase64?: string;
   rawText?: string;
   warnings?: Array<{ code: string; message: string; severity?: string }>;
   lineItems: {

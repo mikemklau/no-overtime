@@ -22,6 +22,54 @@ const DRAFT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 // ─────────────────────────────────────────────────────────────
 // Build a full API FormData payload for Cloud AI requests
 // ─────────────────────────────────────────────────────────────
+
+function compressImageToDataUrl(file: Blob, maxDim = 1200, quality = 0.75): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width, height } = img;
+      if (width > maxDim || height > maxDim) {
+        if (width > height) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve('');
+        return;
+      }
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve('');
+    };
+    img.src = url;
+  });
+}
+
+function dataUrlToFile(dataUrl: string, filename: string): File {
+  const arr = dataUrl.split(',');
+  const mime = arr[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+  }
+  return new File([u8arr], filename, { type: mime });
+}
+
 function buildCloudFormData(
   imageFile: File | Blob,
   deviceId: string | null
@@ -132,7 +180,16 @@ export function ReceiptScanner() {
   // ─── Restore / Discard Draft Handlers ──────────────────
   const handleRestoreDraft = useCallback(() => {
     if (!pendingDraft) return;
-    setReceipts(pendingDraft.receipts);
+    const restored = pendingDraft.receipts.map((r) => {
+      if (r.imageBase64 && !r.sourceFile) {
+        return {
+          ...r,
+          sourceFile: dataUrlToFile(r.imageBase64, `${r.merchantName || 'receipt'}.jpg`),
+        };
+      }
+      return r;
+    });
+    setReceipts(restored);
     setScanMode(pendingDraft.scanMode);
     setPendingDraft(null);
   }, [pendingDraft]);
@@ -238,6 +295,7 @@ export function ReceiptScanner() {
               setOcrProgress(pct)
             );
             const parsed = parseReceiptWithOcrLines(ocr.lines, ocr.text);
+            const imgBase64 = await compressImageToDataUrl(file).catch(() => undefined);
             const entry: ExportReceiptData = {
               merchantName: parsed.merchantName,
               receiptDate: parsed.receiptDate,
@@ -251,6 +309,7 @@ export function ReceiptScanner() {
               fieldConfidence: parsed.fieldConfidence,
               status: parsed.confidence >= 90 ? 'verified' : 'needs_review',
               sourceFile: file,
+              imageBase64: imgBase64,
               rawText: ocr.text,
               warnings: parsed.warnings,
               lineItems: parsed.lineItems,
@@ -334,7 +393,17 @@ export function ReceiptScanner() {
       try {
         // Use the stored file blob for this receipt if available,
         // otherwise create a minimal placeholder (quota still counted)
-        const image = imageFile ?? new Blob([''], { type: 'image/jpeg' });
+        const targetReceipt = receipts[index];
+        let imageToUpload = imageFile || targetReceipt?.sourceFile;
+        if ((!imageToUpload || imageToUpload.size === 0) && targetReceipt?.imageBase64) {
+          imageToUpload = dataUrlToFile(targetReceipt.imageBase64, 'receipt.jpg');
+        }
+        if (!imageToUpload || imageToUpload.size === 0) {
+          alert('Could not locate the image for this receipt. Please re-upload.');
+          setIsProcessing(false);
+          return;
+        }
+        const image = imageToUpload;
         const fd = buildCloudFormData(
           image,
           deviceId
@@ -364,7 +433,9 @@ export function ReceiptScanner() {
         }
 
         if (!response.ok) {
-          throw new Error(`API error ${response.status}`);
+          const errData = await response.json().catch(() => ({}));
+          alert(errData.message || `API error ${response.status}`);
+          throw new Error("API Error Handled");
         }
 
         const data = await response.json();

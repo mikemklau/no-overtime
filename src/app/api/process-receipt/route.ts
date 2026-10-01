@@ -298,7 +298,7 @@ export async function POST(request: NextRequest) {
     // rawText is set by the client when Tesseract (offline OCR) has already run
     const rawText = (formData.get('rawText') as string) || null;
 
-    if (!imageFile) {
+    if (!imageFile || imageFile.size === 0) {
       return NextResponse.json(
         { error: 'NO_IMAGE', message: 'No image file provided.' },
         { status: 400 }
@@ -420,7 +420,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('process-receipt error:', error);
     return NextResponse.json(
-      { error: 'INTERNAL_ERROR', message: 'Failed to process receipt.' },
+      { error: 'INTERNAL_ERROR', message: 'Failed to process receipt. Details: ' + (error instanceof Error ? error.message : String(error)) },
       { status: 500 }
     );
   }
