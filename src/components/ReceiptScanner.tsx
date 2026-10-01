@@ -16,85 +16,7 @@ import { createClient } from '@/lib/supabase/client';
 const DRAFT_STORAGE_KEY = 'no_overtime_receipts_draft_v1';
 const DRAFT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-// ─────────────────────────────────────────────────────────────
-// Sample UK receipts – kept for instant no-image demo testing
-// ─────────────────────────────────────────────────────────────
-const SAMPLE_RECEIPTS = [
-  {
-    name: 'Pret A Manger (Lunch + VAT)',
-    text: `PRET A MANGER
-124 TOTTENHAM COURT ROAD
-LONDON W1T 5AS
-VAT REG NO: GB 927 1374 20
---------------------------------
-1 x Ham & Cheese Baguette    £4.95
-1 x Flat White (Eat In)      £3.60
-1 x Sparkling Water          £1.95
---------------------------------
-SUB-TOTAL                    £8.75
-VAT 20%                      £1.75
-TOTAL                        £10.50
---------------------------------
-DATE: 28/09/2026 13:14
-AUTH CODE: 938210
-AID: A0000000041010
-CARD: ************4819
-CARDHOLDER COPY`,
-  },
-  {
-    name: 'Shell Fuel (Diesel + 20% VAT)',
-    text: `SHELL UK OIL PRODUCTS LTD
-COBHAM SERVICES M25
-VAT NO: GB 235 7632 55
-26/09/2026 08:45
---------------------------------
-1 x V-Power Diesel (38.5L)  £61.60
-1 x Screenwash Concentrate   £5.40
---------------------------------
-SUBTOTAL                    £55.83
-VAT 20%                     £11.17
-TOTAL                       £67.00
---------------------------------
-CHIP & PIN APPROVED
-PLEASE RETAIN FOR YOUR RECORDS`,
-  },
-  {
-    name: 'The Ivy Grill (Dinner + 12.5% Service)',
-    text: `THE IVY COVENT GARDEN
-1 HENRIETTA STREET, LONDON
-DATE: 25/09/2026
---------------------------------
-2 x Shepherd's Pie          £39.00
-1 x Bottle Malbec           £36.00
-2 x Espresso                 £7.00
---------------------------------
-FOOD & BEV SUBTOTAL         £82.00
-SERVICE CHARGE 12.5%        £10.25
-VAT 20%                     £16.40
-TOTAL                      £108.65
---------------------------------
-TERMINAL 08412
-THANK YOU FOR DINING WITH US`,
-  },
-  {
-    name: 'Hardware Store (Math Mismatch Demo)',
-    text: `SCREWFIX DIRECT LTD
-12 HIGH STREET, MANCHESTER
-VAT REG NO: GB 213 4122 10
-DATE: 30/09/2026 14:22
---------------------------------
-2 x Hammer                 £24.00
-1 x Tape Measure            £6.50
-5 x Wood Glue              £12.00
---------------------------------
-SUB-TOTAL                  £40.50
-VAT 20%                     £8.10
-TOTAL                      £99.00
---------------------------------
-CARD TENDERED
-CUSTOMER COPY`,
-  },
-];
+
 
 
 // ─────────────────────────────────────────────────────────────
@@ -636,25 +558,6 @@ export function ReceiptScanner() {
             multiple
             className="hidden"
           />
-        </div>
-
-        {/* Sample receipts for demo testing */}
-        <div className="mt-6 flex flex-col items-center">
-          <span className="text-xs font-bold uppercase tracking-wider text-zinc-500 mb-2">
-            Or try instant UK test receipts:
-          </span>
-          <div className="flex flex-wrap gap-2 justify-center">
-            {SAMPLE_RECEIPTS.map((sample, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => { triggerHaptic('light'); processText(sample.text); }}
-                className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3.5 py-2 text-xs font-bold text-zinc-700 dark:text-zinc-300 hover:border-emerald-500 hover:text-emerald-600 dark:hover:text-emerald-400 transition"
-              >
-                + {sample.name}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
 
