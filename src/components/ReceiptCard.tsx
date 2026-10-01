@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { ExportReceiptData } from '@/lib/excel-export';
@@ -23,12 +23,7 @@ type EditingField = null | 'merchantName' | 'receiptDate' | 'totalAmount' | 'vat
 // ─────────────────────────────────────────────────────────────
 // Confidence badge helper
 // ─────────────────────────────────────────────────────────────
-function getConfidenceBadge(
-  confidence: number,
-  userVerified: boolean,
-  essentialsConfidence?: number,
-  scanMode: 'essentials' | 'detailed' = 'essentials'
-) {
+function getConfidenceBadge(confidence: number, userVerified: boolean, hasMathWarning: boolean, essentialsConfidence?: number, scanMode: 'essentials' | 'detailed' = 'essentials') {
   if (userVerified) {
     return {
       text: '✓ User Verified',
@@ -49,9 +44,7 @@ function getConfidenceBadge(
         'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800',
     };
   }
-  if (score >= 70) {
-    return {
-      text: '⚠ Check Total',
+  if (score >= 70) { return { text: hasMathWarning ? '⚠️ Check Totals' : '⚠️ Review Details',
       score,
       subText: scanMode === 'essentials' ? `Items: ${confidence}%` : (essentialsConfidence ? `HMRC: ${essentialsConfidence}%` : undefined),
       style:
@@ -272,7 +265,9 @@ export function ReceiptCard({
 
   const r = receipt;
   const userVerified = r.status === 'user_verified';
-  const badge = getConfidenceBadge(r.confidence, userVerified, r.essentialsConfidence, activeMode);
+  const mathValidation = checkReceiptMath(r);
+  const mathWarning = mathValidation.hasMismatch ? mathValidation.message : r.warnings?.find((w) => w.code === 'totals_math_mismatch' || w.code === 'vat_exceeds_total')?.message;
+  const badge = getConfidenceBadge(r.confidence, userVerified, !!mathWarning, r.essentialsConfidence, activeMode);
 
   // ─── Field-Level Confidence Scores ──────────────────────────
   const merchantConf = userVerified
@@ -305,13 +300,6 @@ export function ReceiptCard({
   const vatConfStyle = getConfidenceColorInfo(vatConf, userVerified);
   const subtotalConfStyle = getConfidenceColorInfo(subtotalConf, userVerified);
   const serviceChargeConfStyle = getConfidenceColorInfo(serviceChargeConf, userVerified);
-
-  // Dynamic mathematical validation of totals
-  const mathValidation = checkReceiptMath(r);
-  const mathWarning =
-    mathValidation.hasMismatch
-      ? mathValidation.message
-      : r.warnings?.find((w) => w.code === 'totals_math_mismatch' || w.code === 'vat_exceeds_total')?.message;
 
   // ─── Object URL for Original Image ─────────────────────────
   useEffect(() => {
@@ -1067,3 +1055,5 @@ export function ReceiptCard({
     </div>
   );
 }
+
+

@@ -76,6 +76,24 @@ TOTAL                      £108.65
 TERMINAL 08412
 THANK YOU FOR DINING WITH US`,
   },
+  {
+    name: 'Hardware Store (Math Mismatch Demo)',
+    text: `SCREWFIX DIRECT LTD
+12 HIGH STREET, MANCHESTER
+VAT REG NO: GB 213 4122 10
+DATE: 30/09/2026 14:22
+--------------------------------
+2 x Hammer                 £24.00
+1 x Tape Measure            £6.50
+5 x Wood Glue              £12.00
+--------------------------------
+SUB-TOTAL                  £40.50
+VAT 20%                     £8.10
+TOTAL                      £99.00
+--------------------------------
+CARD TENDERED
+CUSTOMER COPY`,
+  },
 ];
 
 
