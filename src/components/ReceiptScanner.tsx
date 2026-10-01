@@ -616,16 +616,24 @@ export function ReceiptScanner() {
         )}
 
         <div className="flex flex-wrap gap-3 justify-center w-full max-w-md">
-          <button
-            type="button"
-            onClick={handleCameraCapture}
-            disabled={isProcessing}
-            className="flex-1 min-w-[200px] h-14 rounded-2xl bg-emerald-600 px-6 text-lg font-bold text-white shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 active:scale-[0.98] transition flex items-center justify-center gap-2 disabled:opacity-50"
+          <label
+            htmlFor="receipt-file-input"
+            onClick={(e) => {
+              triggerHaptic('light');
+              if (Capacitor.isNativePlatform()) {
+                e.preventDefault();
+                handleCameraCapture();
+              }
+            }}
+            className={`flex-1 min-w-[200px] h-14 rounded-2xl bg-emerald-600 px-6 text-lg font-bold text-white shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 active:scale-[0.98] transition flex items-center justify-center gap-2 cursor-pointer select-none ${
+              isProcessing ? 'opacity-50 pointer-events-none' : ''
+            }`}
           >
-            <span>{isProcessing ? '⏳ Processing...' : '📸 Snap or Upload'}</span>
-          </button>
+            <span>{isProcessing ? '⚡ Processing...' : '📸 Snap or Upload'}</span>
+          </label>
 
           <input
+            id="receipt-file-input"
             type="file"
             ref={fileInputRef}
             onChange={(e) => {
