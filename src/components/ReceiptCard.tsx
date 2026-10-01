@@ -648,7 +648,7 @@ export function ReceiptCard({
           <button
             type="button"
             onClick={handleDeleteCard}
-            className="h-8 w-8 rounded-lg flex items-center justify-center text-zinc-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition"
+            className="h-10 w-10 min-h-[40px] min-w-[40px] rounded-lg flex items-center justify-center text-zinc-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition active:scale-95"
             title="Delete receipt"
           >
             🗑️

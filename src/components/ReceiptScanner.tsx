@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { Device } from '@capacitor/device';
 import { parseReceipt, parseReceiptWithOcrLines } from '@/lib/receipt-to-json';
@@ -358,24 +359,28 @@ export function ReceiptScanner() {
   // ─── Mobile Camera Capture via Capacitor ─────────────────
   const handleCameraCapture = async () => {
     triggerHaptic('light');
-    try {
-      const photo = await Camera.getPhoto({
-        quality: 90,
-        allowEditing: false,
-        resultType: CameraResultType.Uri,
-        source: CameraSource.Camera,
-      });
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const photo = await Camera.getPhoto({
+          quality: 90,
+          allowEditing: false,
+          resultType: CameraResultType.Uri,
+          source: CameraSource.Camera,
+        });
 
-      if (photo.webPath) {
-        // Fetch the captured image as a Blob then run offline OCR
-        const response = await fetch(photo.webPath);
-        const blob = await response.blob();
-        await handleFileUpload(new File([blob], 'camera-capture.jpg', { type: 'image/jpeg' }));
+        if (photo.webPath) {
+          const response = await fetch(photo.webPath);
+          const blob = await response.blob();
+          await handleFileUpload(new File([blob], 'camera-capture.jpg', { type: 'image/jpeg' }));
+          return;
+        }
+      } catch (err) {
+        console.warn('Native camera cancelled or error:', err);
       }
-    } catch {
-      // Desktop fallback: open file picker
-      fileInputRef.current?.click();
     }
+
+    // Mobile Web & Desktop Web: Trigger native OS file/camera picker synchronously
+    fileInputRef.current?.click();
   };
 
   // ─── Cloud AI Enhancement ────────────────────────────────
