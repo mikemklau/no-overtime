@@ -629,15 +629,7 @@ export function ReceiptCard({
             <span>{showOriginal ? '✕ Hide Scan' : '📄 View Original'}</span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setLocalMode(activeMode === 'essentials' ? 'detailed' : 'essentials');
-              triggerHaptic('light');
-            }}
-            className="flex flex-col items-end cursor-pointer group text-left transition active:scale-95"
-            title={`Current view: ${activeMode === 'essentials' ? 'HMRC Essentials' : 'Detailed Items'}. Click to toggle.`}
-          >
+          <div className="flex flex-col items-end text-left">
             <span
               className={`inline-flex items-center rounded-xl border px-3 py-1 text-xs md:text-sm font-black tracking-wide transition group-hover:shadow-sm ${badge.style}`}
             >
@@ -645,10 +637,10 @@ export function ReceiptCard({
             </span>
             {badge.subText && (
               <span className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 mt-0.5 mr-1 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition">
-                {badge.subText} (Click to switch)
+                {badge.subText}
               </span>
             )}
-          </button>
+          </div>
 
           <button
             type="button"
