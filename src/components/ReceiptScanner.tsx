@@ -252,7 +252,9 @@ export function ReceiptScanner() {
                 serviceCharge: data.serviceCharge ?? r.serviceCharge,
                 totalAmount: data.total ?? r.totalAmount,
                 confidence: data.confidence,
+                essentialsConfidence: data.confidence,
                 status: data.status,
+                warnings: [],
                 fieldConfidence: {
                   merchantName: 98,
                   receiptDate: 98,
