@@ -93,17 +93,6 @@ export function checkReceiptMath(r: {
  * Map the rich Receipt model from receipt-to-json into the UI's ParsedReceipt shape.
  */
 export function receiptToParsedReceipt(receipt: Receipt, fallbackRawText = ''): ParsedReceipt {
-  // Compute essentials-only confidence: weighted average of the 4 UK accounting fields.
-  // Merchant and Date are less critical than Totals and Tax for HMRC, so weight accordingly.
-  const essentialScores = [
-    { score: receipt.confidence.merchant ?? 0.5, weight: 1 },
-    { score: receipt.confidence.dateTime ?? 0.5, weight: 1 },
-    { score: receipt.confidence.totals ?? 0.5, weight: 2 },
-    { score: receipt.confidence.tax ?? receipt.confidence.totals ?? 0.5, weight: 2 },
-  ];
-  const totalWeight = essentialScores.reduce((s, e) => s + e.weight, 0);
-  const essentialsRaw = essentialScores.reduce((s, e) => s + e.score * e.weight, 0) / totalWeight;
-
   const merchantConf = receipt.merchant.name === 'Unknown merchant' || !receipt.merchant.name
     ? 20
     : Math.round((receipt.merchant.confidence ?? receipt.confidence.merchant ?? 0.8) * 100);
@@ -116,6 +105,16 @@ export function receiptToParsedReceipt(receipt: Receipt, fallbackRawText = ''): 
   const taxConf = Math.round((receipt.confidence.tax ?? receipt.confidence.totals ?? 0.8) * 100);
   const serviceChargeConf = Math.round((receipt.confidence.serviceCharge ?? 0.8) * 100);
 
+  // Compute essentials-only confidence directly from the actual field confidence scores!
+  const essentialScores = [
+    { score: merchantConf, weight: 1 },
+    { score: dateConf, weight: 1 },
+    { score: totalsConf, weight: 2 },
+    { score: taxConf, weight: 2 },
+  ];
+  const totalWeight = essentialScores.reduce((s, e) => s + e.weight, 0);
+  const essentialsConfidence = Math.round(essentialScores.reduce((s, e) => s + e.score * e.weight, 0) / totalWeight);
+
   return {
     merchantName: receipt.merchant.name === 'Unknown merchant' ? null : receipt.merchant.name,
     receiptDate: receipt.dateTime.date === '1970-01-01' ? null : receipt.dateTime.date,
@@ -125,7 +124,7 @@ export function receiptToParsedReceipt(receipt: Receipt, fallbackRawText = ''): 
     serviceCharge: (receipt.totals.serviceCharge ?? 0) > 0 ? receipt.totals.serviceCharge! : null,
     totalAmount: receipt.totals.grandTotal,
     confidence: Math.round((receipt.confidence.overall ?? 0.5) * 100),
-    essentialsConfidence: Math.round(essentialsRaw * 100),
+    essentialsConfidence,
     fieldConfidence: {
       merchantName: merchantConf,
       receiptDate: dateConf,
