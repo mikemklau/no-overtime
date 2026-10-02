@@ -741,7 +741,7 @@ export function ReceiptCard({
             />
             <span
               style={dateConfStyle.vars}
-              className={`text-xs font-bold tabular-nums ${dateConfStyle.className}`}
+              className={`text-[9px] font-medium opacity-60 tabular-nums ${dateConfStyle.className}`}
               title={`Date confidence: ${dateConf}%`}
             >
               {dateConf}%
@@ -760,7 +760,7 @@ export function ReceiptCard({
             />
             <span
               style={merchantConfStyle.vars}
-              className={`text-sm md:text-base font-bold tabular-nums self-center ${merchantConfStyle.className}`}
+              className={`text-[10px] font-medium opacity-60 tabular-nums self-center ${merchantConfStyle.className}`}
               title={`Merchant confidence: ${merchantConf}%`}
             >
               {merchantConf}%
@@ -816,7 +816,7 @@ export function ReceiptCard({
                 </span>
                 <span
                   style={totalConfStyle.vars}
-                  className={`text-[11px] font-bold tabular-nums ${totalConfStyle.className}`}
+                  className={`text-[9px] font-medium opacity-60 tabular-nums ${totalConfStyle.className}`}
                   title={`Total confidence: ${totalConf}%`}
                 >
                   {totalConf}%
@@ -850,7 +850,7 @@ export function ReceiptCard({
                 </span>
                 <span
                   style={vatConfStyle.vars}
-                  className={`text-[11px] font-bold tabular-nums ${vatConfStyle.className}`}
+                  className={`text-[9px] font-medium opacity-60 tabular-nums ${vatConfStyle.className}`}
                   title={`VAT confidence: ${vatConf}%`}
                 >
                   {vatConf}%
@@ -884,7 +884,7 @@ export function ReceiptCard({
                 </span>
                 <span
                   style={subtotalConfStyle.vars}
-                  className={`text-[11px] font-bold tabular-nums ${subtotalConfStyle.className}`}
+                  className={`text-[9px] font-medium opacity-60 tabular-nums ${subtotalConfStyle.className}`}
                   title={`Subtotal confidence: ${subtotalConf}%`}
                 >
                   {subtotalConf}%
@@ -918,7 +918,7 @@ export function ReceiptCard({
                 </span>
                 <span
                   style={serviceChargeConfStyle.vars}
-                  className={`text-[11px] font-bold tabular-nums ${serviceChargeConfStyle.className}`}
+                  className={`text-[9px] font-medium opacity-60 tabular-nums ${serviceChargeConfStyle.className}`}
                   title={`Service charge confidence: ${serviceChargeConf}%`}
                 >
                   {serviceChargeConf}%
@@ -1111,7 +1111,7 @@ export function ReceiptCard({
                           {/* Discreet Color-Coded Confidence Percentage */}
                           <span
                             style={itemConfStyle.vars}
-                            className={`text-xs font-bold tabular-nums shrink-0 ml-1 ${itemConfStyle.className}`}
+                            className={`text-[9px] font-medium opacity-60 tabular-nums shrink-0 ml-1 ${itemConfStyle.className}`}
                             title={`Item confidence: ${itemScore}%`}
                           >
                             {itemScore}%
