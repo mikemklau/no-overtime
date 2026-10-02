@@ -28,12 +28,15 @@ async function preprocessImageForOcr(
         const originalWidth = img.naturalWidth || img.width;
         const originalHeight = img.naturalHeight || img.height;
 
-        // Target: standard OCR resolution is ~2200px max dimension.
-        // If the image is smaller (like a 1024x550 screenshot), upscale up to 2.5x.
+        // Target: optimal OCR resolution is ~1600px max dimension.
+        // Downscale huge mobile photos (4000px -> 1600px) for 4x faster mobile processing.
+        // Upscale small screenshots (<1400px) so text characters are sharp.
         const maxDim = Math.max(originalWidth, originalHeight);
         let scale = 1;
-        if (maxDim < 2000) {
-          scale = Math.min(2.5, Math.max(1.5, 2200 / maxDim));
+        if (maxDim > 1800) {
+          scale = 1600 / maxDim;
+        } else if (maxDim < 1400) {
+          scale = Math.min(2.0, 1600 / maxDim);
         }
 
         const canvas = document.createElement('canvas');
@@ -103,13 +106,18 @@ export async function extractOcrFromImage(
   imageFile: File | Blob,
   onProgress?: (pct: number) => void
 ): Promise<ExtractedOcrData> {
-  const worker = await createWorker('eng', 1, {
-    logger: (m) => {
-      if (m.status === 'recognizing text' && onProgress) {
-        onProgress(Math.round(m.progress * 100));
-      }
-    },
-  });
+  let worker;
+  try {
+    worker = await createWorker('eng', 1, {
+      logger: (m) => {
+        if (m.status === 'recognizing text' && onProgress) {
+          onProgress(Math.round(m.progress * 100));
+        }
+      },
+    });
+  } catch (workerErr: any) {
+    throw new Error(`OCR Engine init failed: ${workerErr?.message || workerErr}`);
+  }
 
   const { source, scale, cleanup } = await preprocessImageForOcr(imageFile);
 

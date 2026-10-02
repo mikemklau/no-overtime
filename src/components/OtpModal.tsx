@@ -40,6 +40,25 @@ export function OtpModal({
 
     try {
       const supabase = createClient();
+      
+      // Developer Fast-Pass for Testing (Bypasses email entirely)
+      if (email.trim().toLowerCase() === 'admin@no-overtime.com') {
+        const { error, data } = await supabase.auth.signInWithPassword({
+          email: 'admin@no-overtime.com',
+          password: 'testpassword123'
+        });
+        if (error) {
+          setErrorMsg(error.message + " (Did you create the admin user in Supabase?)");
+          triggerHaptic('error');
+        } else if (data.session) {
+          triggerHaptic('success');
+          onSuccess(email);
+          onClose();
+        }
+        setLoading(false);
+        return;
+      }
+
       const { error } = await supabase.auth.signInWithOtp({
         email: email.trim(),
         options: {

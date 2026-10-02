@@ -20,7 +20,19 @@ export interface ExportReceiptData {
     subtotal?: number;
     serviceCharge?: number;
   };
+  originalConfidence?: number;
+  originalEssentialsConfidence?: number;
+  originalFieldConfidence?: {
+    merchantName?: number;
+    receiptDate?: number;
+    totalAmount?: number;
+    vatAmount?: number;
+    subtotal?: number;
+    serviceCharge?: number;
+  };
+  originalStatus?: string;
   status: string;
+  isAiEnhanced?: boolean;
   sourceFile?: File | Blob;
   imageBase64?: string;
   rawText?: string;
@@ -32,6 +44,7 @@ export interface ExportReceiptData {
     totalPrice: number;
     category: string | null;
     confidence?: number;
+    originalConfidence?: number;
   }[];
 }
 

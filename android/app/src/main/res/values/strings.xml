@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">No Overtime</string>
+    <string name="title_activity_main">No Overtime</string>
+    <string name="package_name">com.noovertime.app</string>
+    <string name="custom_url_scheme">com.noovertime.app</string>
+</resources>

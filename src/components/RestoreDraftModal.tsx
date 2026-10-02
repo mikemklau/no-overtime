@@ -83,37 +83,44 @@ export function RestoreDraftModal({
         </p>
 
         {/* Draft Summary Card */}
-        <div className="rounded-2xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200/80 dark:border-zinc-700/60 p-4 mb-6 space-y-2">
+        <div className="rounded-2xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200/80 dark:border-zinc-700/60 p-4 mb-6 space-y-3">
           <div className="flex items-center justify-between text-xs font-bold text-zinc-500 uppercase tracking-wider">
             <span>Staged Receipts</span>
             <span>Estimated Total</span>
           </div>
-          <div className="flex items-baseline justify-between">
-            <span className="text-sm font-bold text-foreground">
-              {count} receipt{count === 1 ? '' : 's'}{' '}
-              <span className="text-xs font-normal text-zinc-400">
-                ({merchants}{moreCount > 0 ? ` +${moreCount} more` : ''})
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <div className="text-base font-black text-foreground">
+                {count} receipt{count === 1 ? '' : 's'}
+              </div>
+              <div
+                className="text-xs font-normal text-zinc-500 dark:text-zinc-400 truncate mt-0.5"
+                title={`${merchants}${moreCount > 0 ? ` +${moreCount} more` : ''}`}
+              >
+                {merchants}{moreCount > 0 ? ` +${moreCount} more` : ''}
+              </div>
+            </div>
+            <div className="text-right shrink-0">
+              <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
+                £{totalSum.toFixed(2)}
               </span>
-            </span>
-            <span className="text-lg font-black text-emerald-600 dark:text-emerald-400">
-              £{totalSum.toFixed(2)}
-            </span>
+            </div>
           </div>
-          <div className="text-[11px] text-zinc-400 pt-1 border-t border-zinc-200/60 dark:border-zinc-700/60 flex items-center justify-between">
+          <div className="text-[11px] text-zinc-400 pt-2 border-t border-zinc-200/60 dark:border-zinc-700/60 flex items-center justify-between">
             <span>Scan mode: {draft.scanMode === 'essentials' ? '🏛️ HMRC Essentials' : '📋 Detailed Items'}</span>
             <span>Auto-expires in 24h</span>
           </div>
         </div>
 
         {/* Action Buttons */}
-        <div className="flex flex-col sm:flex-row gap-3">
+        <div className="flex flex-col gap-3">
           <button
             type="button"
             onClick={() => {
               triggerHaptic('success');
               onRestore();
             }}
-            className="flex-1 h-12 rounded-xl bg-emerald-600 px-5 text-sm font-bold text-white shadow-md hover:bg-emerald-700 active:scale-[0.98] transition flex items-center justify-center gap-2"
+            className="w-full h-12 min-h-[48px] rounded-xl bg-emerald-600 px-5 text-sm font-bold text-white shadow-md hover:bg-emerald-700 active:scale-[0.98] transition flex items-center justify-center gap-2"
           >
             <span>✓ Restore Work</span>
           </button>
@@ -123,7 +130,7 @@ export function RestoreDraftModal({
               triggerHaptic('light');
               onDiscard();
             }}
-            className="h-12 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-4 text-sm font-bold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition"
+            className="w-full h-12 min-h-[48px] rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-4 text-sm font-bold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 active:scale-[0.98] transition flex items-center justify-center gap-2"
           >
             <span>Discard &amp; Start Fresh</span>
           </button>

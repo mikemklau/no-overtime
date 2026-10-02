@@ -9,6 +9,7 @@ const nextConfig: NextConfig = {
   ...(isCapacitorBuild && { output: "export" }),
 
   transpilePackages: ["receipt-to-json"],
+  allowedDevOrigins: ["192.168.1.201", "192.168.1.201:3000", "localhost:3000"],
 
   turbopack: {
     root: path.resolve(__dirname, "../.."),
