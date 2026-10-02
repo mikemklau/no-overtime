@@ -1018,7 +1018,7 @@ export function ReceiptScanner() {
                 <span>
                   {uploadEngine === 'cloud'
                     ? '✨ Direct high-accuracy AI parsing • Handles complex & messy receipts'
-                    : '⚡ 100% Offline • Basic draft reader (low accuracy in general; use AI for precision)'}
+                    : '⚡ 100% Offline • Basic draft reader (low accuracy in general, but a good starting point for editing)'}
                 </span>
                 <button
                   type="button"
