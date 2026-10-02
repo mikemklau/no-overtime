@@ -1140,47 +1140,49 @@ export function ReceiptCard({
           </div>
 
           {/* Action Buttons Row */}
-          <div className="flex flex-wrap gap-2">
-            {/* Confirm & Verify */}
-            {!userVerified ? (
-              <button
-                type="button"
-                onClick={handleConfirmVerify}
-                className="h-12 rounded-xl border-2 border-emerald-600 bg-emerald-600 px-5 text-sm font-bold text-white hover:bg-emerald-700 transition flex items-center justify-center gap-2 shadow-sm"
-              >
-                <span>✓ Confirm &amp; Verify</span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handleUnconfirm}
-                className="h-12 rounded-xl border-2 border-amber-600/40 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/50 px-5 text-sm font-bold transition flex items-center justify-center gap-2 shadow-sm"
-                title="Accidentally confirmed? Revert status and scores back to original scan confidence"
-              >
-                <span>↩️ Undo Verification (Revert Scores)</span>
-              </button>
-            )}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-4 border-t border-zinc-100 dark:border-zinc-800/60 mt-4">
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Confirm & Verify */}
+              {!userVerified ? (
+                <button
+                  type="button"
+                  onClick={handleConfirmVerify}
+                  className="h-12 rounded-xl border-2 border-emerald-600 bg-emerald-600 px-5 text-sm font-bold text-white hover:bg-emerald-700 transition flex items-center justify-center gap-2 shadow-sm"
+                >
+                  <span>✓ Confirm &amp; Verify</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleUnconfirm}
+                  className="h-12 rounded-xl border-2 border-amber-600/40 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/50 px-5 text-sm font-bold transition flex items-center justify-center gap-2 shadow-sm"
+                  title="Accidentally confirmed? Revert status and scores back to original scan confidence"
+                >
+                  <span>↩️ Undo Verification (Revert Scores)</span>
+                </button>
+              )}
 
-            {/* Cloud AI Enhancement */}
-            {!userVerified && (
-              <button
-                type="button"
-                disabled={isProcessing || r.isAiEnhanced}
-                onClick={() => onEnhanceWithAI(index, r.sourceFile)}
-                className={`h-12 rounded-xl border-2 px-5 text-sm font-bold transition flex items-center justify-center gap-2 ${r.isAiEnhanced ? "border-emerald-200 bg-emerald-50 text-emerald-600/80 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-500/80 cursor-default" : "border-emerald-600/30 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 disabled:opacity-50"}`}
-              >
-                <span>{r.isAiEnhanced ? "✨ AI Applied" : "✨ Enhance with AI"}</span>
-              </button>
-            )}
+              {/* Cloud AI Enhancement */}
+              {!userVerified && (
+                <button
+                  type="button"
+                  disabled={isProcessing || r.isAiEnhanced}
+                  onClick={() => onEnhanceWithAI(index, r.sourceFile)}
+                  className={`h-12 rounded-xl border-2 px-5 text-sm font-bold transition flex items-center justify-center gap-2 ${r.isAiEnhanced ? "border-emerald-200 bg-emerald-50 text-emerald-600/80 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-500/80 cursor-default" : "border-emerald-600/30 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 disabled:opacity-50"}`}
+                >
+                  <span>{r.isAiEnhanced ? "✨ AI Applied" : "✨ Enhance with AI"}</span>
+                </button>
+              )}
+            </div>
 
-            {/* Bottom View / Hide Original Document Button */}
+            {/* Standalone Bottom Right View / Hide Original Document Button */}
             <button
               type="button"
               onClick={() => {
                 setShowOriginal((prev) => !prev);
                 triggerHaptic('light');
               }}
-              className={`h-12 rounded-xl border-2 px-5 text-sm font-bold transition flex items-center justify-center gap-2 ${
+              className={`h-12 rounded-xl border-2 px-5 text-sm font-bold transition flex items-center justify-center gap-2 shrink-0 sm:ml-auto ${
                 showOriginal
                   ? 'border-emerald-600/40 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-200'
                   : 'border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:border-emerald-500 hover:text-emerald-600'
