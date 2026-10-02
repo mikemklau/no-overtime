@@ -53,16 +53,16 @@ export function EngineInfoModal({ isOpen, onClose }: EngineInfoModalProps) {
               </span>
             </div>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3 leading-relaxed">
-              Optical Character Recognition runs 100% locally on your browser CPU. Because it uses basic pattern matching without AI, accuracy can be low for camera photos and physical paper receipts.
+              Optical Character Recognition runs 100% locally on your browser CPU. Because it uses basic pattern matching without AI intelligence, <strong>overall parsing accuracy is generally low</strong>. It acts as a fast, free local draft reader.
             </p>
             <div className="space-y-1.5 text-xs">
               <div className="flex items-start gap-1.5">
-                <span className="text-emerald-600 dark:text-emerald-400 font-bold">✓ Best for:</span>
-                <span>Clean printed receipts, PDFs, digital invoices, high-contrast images.</span>
+                <span className="text-amber-600 dark:text-amber-400 font-bold">⚠️ Accuracy:</span>
+                <span>Low accuracy in general. Expect missing totals or OCR character typos.</span>
               </div>
               <div className="flex items-start gap-1.5">
-                <span className="text-amber-600 dark:text-amber-400 font-bold">⚠️ Best avoided for:</span>
-                <span>Crumpled paper, blurry photos, handwriting, or low-light receipts.</span>
+                <span className="text-emerald-600 dark:text-emerald-400 font-bold">✓ Best for:</span>
+                <span>Quick private preview when you are happy to double-check &amp; edit values manually.</span>
               </div>
             </div>
           </div>
