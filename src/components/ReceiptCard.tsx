@@ -769,22 +769,7 @@ export function ReceiptCard({
         </div>
 
         <div className="flex flex-wrap items-center sm:justify-end gap-2 w-full sm:w-auto shrink-0 mt-2 sm:mt-0">
-          {/* Toggle View Original Button */}
-          <button
-            type="button"
-            onClick={() => {
-              setShowOriginal((prev) => !prev);
-              triggerHaptic('light');
-            }}
-            className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs md:text-sm font-black transition ${
-              showOriginal
-                ? 'border-emerald-500 bg-emerald-500 text-white shadow-sm'
-                : 'border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:border-emerald-500 hover:text-emerald-600'
-            }`}
-            title="Toggle original document scan comparison"
-          >
-            <span>{showOriginal ? '✕ Hide Scan' : '📄 View Original'}</span>
-          </button>
+          
 
           <div className="flex flex-col items-end text-left">
             <span
