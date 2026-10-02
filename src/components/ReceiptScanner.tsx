@@ -1017,8 +1017,8 @@ export function ReceiptScanner() {
               <span className="mt-1.5 text-[11px] font-medium text-zinc-500 dark:text-zinc-400 inline-flex items-center gap-1">
                 <span>
                   {uploadEngine === 'cloud'
-                    ? '✨ Bypasses slow mobile OCR • Direct high-accuracy AI parsing'
-                    : '⚡ Runs directly on your device CPU • 100% private & free'}
+                    ? '✨ Direct high-accuracy AI parsing • Handles complex & messy receipts'
+                    : '⚡ Runs 100% offline on-device • Basic accuracy (great starting point!)'}
                 </span>
                 <button
                   type="button"
