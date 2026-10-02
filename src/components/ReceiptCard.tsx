@@ -1184,7 +1184,7 @@ export function ReceiptCard({
                 onClick={() => onEnhanceWithAI(index, r.sourceFile)}
                 className={`h-12 rounded-xl border-2 px-5 text-sm font-bold transition flex items-center justify-center gap-2 ${r.isAiEnhanced ? "border-emerald-200 bg-emerald-50 text-emerald-600/80 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-500/80 cursor-default" : "border-emerald-600/30 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 disabled:opacity-50"}`}
               >
-                <span>{r.isAiEnhanced ? "✨ AI Applied" : "✨ Enhance with Cloud AI"}</span>
+                <span>{r.isAiEnhanced ? "✨ AI Applied" : "✨ Enhance with AI"}</span>
               </button>
             )}
 

@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
             currency: 'gbp',
             product_data: {
               name: 'No Overtime Pro',
-              description: '500 Cloud AI Scans per month + Priority Export',
+              description: '500 AI Scans per month + Priority Export',
             },
             unit_amount: 800, // £8.00 in pence
             recurring: {

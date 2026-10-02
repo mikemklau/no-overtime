@@ -121,7 +121,7 @@ export function SettingsModal({
           </p>
 
           <div className="pt-2 border-t border-zinc-200 dark:border-zinc-700/60 flex items-center justify-between text-xs text-zinc-500">
-            <span>Cloud AI Scans Used:</span>
+            <span>AI Scans Used:</span>
             <span className="font-bold text-foreground">
               {scansUsed} / {scansLimit}
             </span>

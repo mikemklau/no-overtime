@@ -314,7 +314,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error: 'AUTH_REQUIRED',
-          message: 'Log in to claim your 5 free Cloud AI scans.',
+          message: 'Log in to claim your 5 free AI scans.',
         },
         { status: 401 }
       );
@@ -337,7 +337,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json(
             {
               error: 'QUOTA_EXCEEDED',
-              message: `You've used all ${profile.ai_scans_limit} free Cloud AI scans. Upgrade to Pro for unlimited scans.`,
+              message: `You've used all ${profile.ai_scans_limit} free AI scans. Upgrade to Pro for unlimited scans.`,
               scansUsed: profile.ai_scans_used,
               scansLimit: profile.ai_scans_limit,
             },
@@ -357,7 +357,7 @@ export async function POST(request: NextRequest) {
             {
               error: 'QUOTA_EXCEEDED',
               message:
-                "You've used all 5 free Cloud AI scans on this device. Sign in or upgrade to Pro.",
+                "You've used all 5 free AI scans on this device. Sign in or upgrade to Pro.",
               scansUsed,
               scansLimit: 5,
             },

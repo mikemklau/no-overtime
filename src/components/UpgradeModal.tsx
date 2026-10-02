@@ -53,7 +53,7 @@ export function UpgradeModal({
 
         <div className="mb-6 rounded-2xl bg-amber-50 p-4 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800">
           <p className="text-sm md:text-base font-semibold text-amber-900 dark:text-amber-200">
-            You have used all {scansUsed} of {scansLimit} free Cloud AI scans.
+            You have used all {scansUsed} of {scansLimit} free AI scans.
           </p>
           <p className="text-xs md:text-sm text-amber-800 dark:text-amber-300 mt-1">
             Unlimited offline on-device scans remain 100% free on mobile. Upgrade to Pro for unlimited OpenAI Vision parsing.
@@ -69,7 +69,7 @@ export function UpgradeModal({
               <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 text-xs font-bold">
                 ✓
               </span>
-              Unlimited Cloud AI receipt & invoice parsing
+              Unlimited AI receipt &amp; invoice parsing
             </li>
             <li className="flex items-center gap-2.5">
               <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 text-xs font-bold">

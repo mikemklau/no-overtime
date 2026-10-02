@@ -17,6 +17,7 @@ import { OtpModal } from './OtpModal';
 import { UpgradeModal } from './UpgradeModal';
 import { RestoreDraftModal, type StoredReceiptsDraft } from './RestoreDraftModal';
 import { SettingsModal } from './SettingsModal';
+import { EngineInfoModal } from './EngineInfoModal';
 import { ReceiptCard } from './ReceiptCard';
 import { createClient } from '@/lib/supabase/client';
 
@@ -171,6 +172,7 @@ export function ReceiptScanner() {
   const [otpReason, setOtpReason] = useState<'cloud_ai' | 'export'>('cloud_ai');
   const [isUpgradeOpen, setIsUpgradeOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isEngineInfoOpen, setIsEngineInfoOpen] = useState(false);
   const [quotaInfo, setQuotaInfo] = useState({ used: 5, limit: 5 });
 
   // Staged files waiting for authentication before Cloud AI batch processing
@@ -394,8 +396,8 @@ export function ReceiptScanner() {
           const file = await prepareFileForOcr(validFiles[i]);
           setOcrStatusText(
             validFiles.length > 1
-              ? `Processing Cloud AI ${i + 1} of ${validFiles.length}...`
-              : 'Processing with Cloud AI...'
+              ? `Processing AI ${i + 1} of ${validFiles.length}...`
+              : 'Processing with AI...'
           );
           setOcrProgress(Math.round(((i) / validFiles.length) * 100));
 
@@ -871,7 +873,7 @@ export function ReceiptScanner() {
 
           {/* Dev Mock AI Toggle (Restricted to Test Accounts & Dev Sessions) */}
           {userEmail && ['admin@no-overtime.com', 'test@no-overtime.com', 'developer@no-overtime.com'].includes(userEmail.toLowerCase()) && (
-            <div className="flex items-center gap-2 px-2" title="Test Account Dev Mode: Simulate Cloud AI parsing without spending any OpenAI API credits">
+            <div className="flex items-center gap-2 px-2" title="Test Account Dev Mode: Simulate AI parsing without spending any OpenAI API credits">
               <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400">🧪 Mock AI</span>
               <button
                 type="button"
@@ -939,7 +941,7 @@ export function ReceiptScanner() {
               {uploadEngine === 'cloud' ? 'Processing with Cloud AI' : 'Reading Document'}
             </h3>
             <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-8 max-w-sm">
-              {ocrStatusText || (uploadEngine === 'cloud' ? 'Cloud AI is analyzing your receipts...' : 'Extracting receipt lines...')}
+              {ocrStatusText || (uploadEngine === 'cloud' ? 'AI is analyzing your receipts...' : 'Extracting receipt lines...')}
             </p>
             <div className="w-full max-w-xs">
               <div className="flex justify-between text-xs font-bold text-zinc-500 mb-2">
@@ -1006,16 +1008,30 @@ export function ReceiptScanner() {
                       : 'text-zinc-600 dark:text-zinc-400 hover:text-foreground'
                   }`}
                 >
-                  <span>✨ Cloud AI</span>
+                  <span>✨ AI</span>
                   <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded-full bg-white/20 text-white">
                     Fast
                   </span>
                 </button>
               </div>
-              <span className="mt-1.5 text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
-                {uploadEngine === 'cloud'
-                  ? '✨ Bypasses slow mobile OCR • Direct high-accuracy Cloud AI parsing'
-                  : '⚡ Runs directly on your device CPU • 100% private & free'}
+              <span className="mt-1.5 text-[11px] font-medium text-zinc-500 dark:text-zinc-400 inline-flex items-center gap-1">
+                <span>
+                  {uploadEngine === 'cloud'
+                    ? '✨ Bypasses slow mobile OCR • Direct high-accuracy AI parsing'
+                    : '⚡ Runs directly on your device CPU • 100% private & free'}
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsEngineInfoOpen(true);
+                    triggerHaptic('light');
+                  }}
+                  className="inline-flex items-center justify-center p-0.5 text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition"
+                  title="Learn more about OCR vs AI"
+                >
+                  ℹ️
+                </button>
               </span>
             </div>
 
@@ -1289,6 +1305,11 @@ export function ReceiptScanner() {
         onClose={() => setIsUpgradeOpen(false)}
         scansUsed={quotaInfo.used}
         scansLimit={quotaInfo.limit}
+      />
+
+      <EngineInfoModal
+        isOpen={isEngineInfoOpen}
+        onClose={() => setIsEngineInfoOpen(false)}
       />
 
       <SettingsModal
