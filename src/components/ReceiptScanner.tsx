@@ -976,7 +976,7 @@ export function ReceiptScanner() {
               Drag & Drop Receipts Here
             </h2>
             <p className="text-sm md:text-base text-zinc-600 dark:text-zinc-400 mb-6 max-w-md">
-              Drop photos or invoices. Free offline OCR runs instantly in your browser — no signup required!
+              Drop photos or digital invoices. Free offline OCR provides a fast basic draft — use AI for 99%+ accuracy on paper receipts!
             </p>
 
             {/* Pre-Upload Engine Selector Toggle */}
@@ -1018,7 +1018,7 @@ export function ReceiptScanner() {
                 <span>
                   {uploadEngine === 'cloud'
                     ? '✨ Direct high-accuracy AI parsing • Handles complex & messy receipts'
-                    : '⚡ Runs 100% offline on-device • Basic accuracy (great starting point!)'}
+                    : '⚡ 100% Offline • Basic draft accuracy (best for clean digital PDFs; use AI for photos)'}
                 </span>
                 <button
                   type="button"

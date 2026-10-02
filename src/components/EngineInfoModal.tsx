@@ -53,7 +53,7 @@ export function EngineInfoModal({ isOpen, onClose }: EngineInfoModalProps) {
               </span>
             </div>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3 leading-relaxed">
-              Optical Character Recognition runs 100% locally on your browser CPU. Your data never leaves your device and runs completely offline &amp; free.
+              Optical Character Recognition runs 100% locally on your browser CPU. Because it uses basic pattern matching without AI, accuracy can be low for camera photos and physical paper receipts.
             </p>
             <div className="space-y-1.5 text-xs">
               <div className="flex items-start gap-1.5">
