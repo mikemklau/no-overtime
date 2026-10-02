@@ -7,10 +7,16 @@ import { Device } from '@capacitor/device';
 import { parseReceipt, parseReceiptWithOcrLines } from '@/lib/receipt-to-json';
 import { extractOcrFromImage } from '@/lib/tesseract-ocr';
 import { exportReceiptsToExcel, type ExportReceiptData } from '@/lib/excel-export';
+import { exportReceiptsToPdf } from '@/lib/pdf-export';
+import { exportReceiptsToCsv } from '@/lib/csv-export';
+import { exportReceiptsToDocx } from '@/lib/docx-export';
+import { exportReceiptsToTxt } from '@/lib/txt-export';
+import { convertPdfToImageDataUrl } from '@/lib/pdf-parser';
 import { triggerHaptic } from '@/lib/haptics';
 import { OtpModal } from './OtpModal';
 import { UpgradeModal } from './UpgradeModal';
 import { RestoreDraftModal, type StoredReceiptsDraft } from './RestoreDraftModal';
+import { SettingsModal } from './SettingsModal';
 import { ReceiptCard } from './ReceiptCard';
 import { createClient } from '@/lib/supabase/client';
 
@@ -82,15 +88,80 @@ function buildCloudFormData(
   return fd;
 }
 
+async function getAllFilesFromDataTransfer(items: DataTransferItemList): Promise<File[]> {
+  const files: File[] = [];
+
+  const traverseEntry = async (entry: any) => {
+    if (!entry) return;
+    if (entry.isFile) {
+      await new Promise<void>((resolve) => {
+        entry.file(
+          (file: File) => {
+            files.push(file);
+            resolve();
+          },
+          () => resolve()
+        );
+      });
+    } else if (entry.isDirectory) {
+      const dirReader = entry.createReader();
+      const readEntriesBatch = (): Promise<any[]> => {
+        return new Promise((resolve) => {
+          dirReader.readEntries(
+            (entries: any[]) => resolve(entries),
+            () => resolve([])
+          );
+        });
+      };
+
+      let entries = await readEntriesBatch();
+      while (entries.length > 0) {
+        for (const child of entries) {
+          await traverseEntry(child);
+        }
+        entries = await readEntriesBatch();
+      }
+    }
+  };
+
+  const entryPromises: Promise<void>[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const entry = (items[i] as any).webkitGetAsEntry?.();
+    if (entry) entryPromises.push(traverseEntry(entry));
+  }
+  await Promise.all(entryPromises);
+
+  return files;
+}
+
+const SUPPORTED_EXTENSIONS_REGEX = /\.(jpe?g|png|webp|bmp|gif|tiff?|pdf|docx?|xlsx?)$/i;
+
+function isSupportedFile(file: File): boolean {
+  if (file.type.startsWith('image/') || file.type === 'application/pdf') return true;
+  return SUPPORTED_EXTENSIONS_REGEX.test(file.name);
+}
+
+async function prepareFileForOcr(file: File): Promise<File> {
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  if (isPdf) {
+    const dataUrl = await convertPdfToImageDataUrl(file);
+    return dataUrlToFile(dataUrl, file.name.replace(/\.pdf$/i, '.jpg'));
+  }
+  return file;
+}
+
 // ─────────────────────────────────────────────────────────────
 // Main Component
 // ─────────────────────────────────────────────────────────────
 export function ReceiptScanner() {
   const [receipts, setReceipts] = useState<ExportReceiptData[]>([]);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [enhancingIndexes, setEnhancingIndexes] = useState<Set<number>>(new Set());
   const [ocrProgress, setOcrProgress] = useState<number | null>(null);
   const [ocrStatusText, setOcrStatusText] = useState<string | null>(null);
   const [scanMode, setScanMode] = useState<'essentials' | 'detailed'>('essentials');
+  const [uploadEngine, setUploadEngine] = useState<'offline' | 'cloud'>('offline');
+  const [isMockAi, setIsMockAi] = useState(true);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [deviceId, setDeviceId] = useState<string | null>(null);
@@ -99,13 +170,31 @@ export function ReceiptScanner() {
   const [isOtpOpen, setIsOtpOpen] = useState(false);
   const [otpReason, setOtpReason] = useState<'cloud_ai' | 'export'>('cloud_ai');
   const [isUpgradeOpen, setIsUpgradeOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [quotaInfo, setQuotaInfo] = useState({ used: 5, limit: 5 });
+
+  // Staged files waiting for authentication before Cloud AI batch processing
+  const pendingCloudFilesRef = useRef<File[] | null>(null);
 
   // Refresh persistence draft state
   const [pendingDraft, setPendingDraft] = useState<StoredReceiptsDraft | null>(null);
   const isDraftRestoredRef = useRef(false);
 
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Close export menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
+        setIsExportMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // ─── Initialise session, device info & restore draft on mount ──────────
   useEffect(() => {
@@ -163,7 +252,7 @@ export function ReceiptScanner() {
           savedAt: Date.now(),
           scanMode,
           receipts: receipts.map((r) => {
-            // Strip non-serializable File/Blob objects
+            // Strip non-serializable File/Blob objects while retaining isAiEnhanced
             const { sourceFile, ...rest } = r;
             return rest;
           }),
@@ -255,6 +344,7 @@ export function ReceiptScanner() {
                 confidence: data.confidence,
                 essentialsConfidence: data.confidence,
                 status: data.status,
+                isAiEnhanced: true,
                 warnings: [],
                 fieldConfidence: {
                   merchantName: 98,
@@ -275,25 +365,194 @@ export function ReceiptScanner() {
     []
   );
 
-  // ─── Offline OCR: Tesseract.js → UK parser with 2D geometry (Multi-file batch) ───
-  const handleFilesUpload = useCallback(
+  // ─── Dual Processing Pipeline: Offline Local OCR or Direct Cloud AI ───
+  const processFilesBatchWithCloudAi = useCallback(
     async (files: File[]) => {
       if (!files.length) return;
-      setIsProcessing(true);
+
+      const unsupported = files.filter((f) => !isSupportedFile(f));
+      if (unsupported.length > 0) {
+        triggerHaptic('warning');
+        alert(`⚠️ File "${unsupported[0].name}" is an unsupported format.\n\nPlease upload images (JPG, PNG, WEBP) or digital documents (PDF, Word, Excel).`);
+      }
+      const validFiles = files.filter((f) => isSupportedFile(f));
+      if (!validFiles.length) return;
+
+      // Soft auth gate: Prompt OTP if user is not authenticated yet
+      if (!userEmail) {
+        pendingCloudFilesRef.current = validFiles;
+        setOtpReason('cloud_ai');
+        setIsOtpOpen(true);
+        return;
+      }
+
+      setIsUploading(true);
       triggerHaptic('light');
 
       try {
-        for (let i = 0; i < files.length; i++) {
-          const file = files[i];
+        for (let i = 0; i < validFiles.length; i++) {
+          const file = await prepareFileForOcr(validFiles[i]);
           setOcrStatusText(
-            files.length > 1
-              ? `Reading document ${i + 1} of ${files.length}...`
+            validFiles.length > 1
+              ? `Processing Cloud AI ${i + 1} of ${validFiles.length}...`
+              : 'Processing with Cloud AI...'
+          );
+          setOcrProgress(Math.round(((i) / validFiles.length) * 100));
+
+          if (isMockAi) {
+            await new Promise((r) => setTimeout(r, 400));
+            const imgBase64 = await compressImageToDataUrl(file).catch(() => undefined);
+            const entry: ExportReceiptData = {
+              merchantName: 'Mock Tesco Extra (Dev Test)',
+              receiptDate: new Date().toISOString().split('T')[0],
+              currency: 'GBP',
+              subtotal: 12.50,
+              vatAmount: 2.50,
+              serviceCharge: 0,
+              totalAmount: 15.00,
+              confidence: 98,
+              essentialsConfidence: 98,
+              fieldConfidence: {
+                merchantName: 98,
+                receiptDate: 98,
+                totalAmount: 99,
+                vatAmount: 98,
+                subtotal: 98,
+                serviceCharge: 95,
+              },
+              status: 'verified',
+              isAiEnhanced: true,
+              sourceFile: file,
+              imageBase64: imgBase64,
+              warnings: [],
+              lineItems: [
+                { description: 'Mock AI Item 1', quantity: 1, unitPrice: 7.50, totalPrice: 7.50, category: null, confidence: 98 },
+                { description: 'Mock AI Item 2', quantity: 2, unitPrice: 3.75, totalPrice: 7.50, category: null, confidence: 98 },
+              ],
+            };
+            setReceipts((prev) => [entry, ...prev]);
+            triggerHaptic('success');
+            continue;
+          }
+
+          try {
+            const fd = buildCloudFormData(file, deviceId);
+            const headers: Record<string, string> = {};
+            if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+
+            const response = await fetch('/api/process-receipt', {
+              method: 'POST',
+              headers,
+              body: fd,
+            });
+
+            if (response.status === 403) {
+              const errorData = await response.json();
+              setQuotaInfo({ used: errorData.scansUsed ?? 5, limit: errorData.scansLimit ?? 5 });
+              setIsUpgradeOpen(true);
+              triggerHaptic('warning');
+              break;
+            }
+
+            if (response.status === 401) {
+              pendingCloudFilesRef.current = files.slice(i);
+              setIsOtpOpen(true);
+              triggerHaptic('warning');
+              break;
+            }
+
+            if (!response.ok) {
+              const errData = await response.json().catch(() => ({}));
+              console.error(`Cloud API error for ${file.name}:`, errData);
+              continue;
+            }
+
+            const data = await response.json();
+            if (data.success && data.receipt) {
+              const imgBase64 = await compressImageToDataUrl(file).catch(() => undefined);
+              const rData = data.receipt;
+              const entry: ExportReceiptData = {
+                id: rData.id || undefined,
+                merchantName: rData.merchant || 'Unknown Merchant',
+                receiptDate: rData.date || null,
+                currency: rData.currency || 'GBP',
+                subtotal: rData.subtotal ?? null,
+                vatAmount: rData.vat ?? null,
+                serviceCharge: rData.serviceCharge ?? null,
+                totalAmount: rData.total ?? null,
+                confidence: rData.confidence ?? 98,
+                essentialsConfidence: rData.confidence ?? 98,
+                fieldConfidence: {
+                  merchantName: 98,
+                  receiptDate: 98,
+                  totalAmount: 99,
+                  vatAmount: 98,
+                  subtotal: 98,
+                  serviceCharge: 95,
+                },
+                status: rData.status || 'verified',
+                isAiEnhanced: true,
+                sourceFile: file,
+                imageBase64: imgBase64,
+                warnings: [],
+                lineItems: (rData.lineItems || []).map((it: any) => ({
+                  ...it,
+                  confidence: it.confidence ?? 95,
+                })),
+              };
+              setReceipts((prev) => [entry, ...prev]);
+              triggerHaptic('success');
+            }
+          } catch (fileErr) {
+            console.error(`Failed to process ${file.name} in Cloud:`, fileErr);
+          }
+        }
+      } catch (err) {
+        console.error('Batch Cloud AI error:', err);
+        triggerHaptic('error');
+      } finally {
+        setIsUploading(false);
+        setOcrProgress(null);
+        setOcrStatusText(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    },
+    [userEmail, deviceId, authToken]
+  );
+
+  // ─── Unified File Upload Dispatcher ───
+  const handleFilesUpload = useCallback(
+    async (files: File[]) => {
+      if (!files.length) return;
+
+      const unsupported = files.filter((f) => !isSupportedFile(f));
+      if (unsupported.length > 0) {
+        triggerHaptic('warning');
+        alert(`⚠️ File "${unsupported[0].name}" is an unsupported format.\n\nPlease upload images (JPG, PNG, WEBP) or digital documents (PDF, Word, Excel).`);
+      }
+      const validFiles = files.filter((f) => isSupportedFile(f));
+      if (!validFiles.length) return;
+
+      if (uploadEngine === 'cloud') {
+        await processFilesBatchWithCloudAi(validFiles);
+        return;
+      }
+
+      // Offline OCR (Tesseract.js in browser)
+      setIsUploading(true);
+      triggerHaptic('light');
+
+      try {
+        for (let i = 0; i < validFiles.length; i++) {
+          const file = await prepareFileForOcr(validFiles[i]);
+          setOcrStatusText(
+            validFiles.length > 1
+              ? `Reading document ${i + 1} of ${validFiles.length}...`
               : 'Reading document...'
           );
           setOcrProgress(0);
 
           try {
-            // Run Tesseract in the browser — extract positioned lines with bounding boxes
             const ocr = await extractOcrFromImage(file, (pct) =>
               setOcrProgress(pct)
             );
@@ -319,7 +578,7 @@ export function ReceiptScanner() {
             };
             setReceipts((prev) => [entry, ...prev]);
             triggerHaptic(parsed.confidence >= 90 ? 'success' : 'warning');
-          } catch (fileErr) {
+          } catch (fileErr: any) {
             console.error(`Failed to process ${file.name}:`, fileErr);
           }
         }
@@ -327,14 +586,13 @@ export function ReceiptScanner() {
         console.error('Offline OCR error:', err);
         triggerHaptic('error');
       } finally {
-        setIsProcessing(false);
+        setIsUploading(false);
         setOcrProgress(null);
         setOcrStatusText(null);
-        // Reset the file input so the same files can be re-uploaded if needed
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
     },
-    []
+    [uploadEngine, processFilesBatchWithCloudAi]
   );
 
   const handleFileUpload = useCallback(
@@ -342,17 +600,24 @@ export function ReceiptScanner() {
     [handleFilesUpload]
   );
 
-  // ─── Drag & drop ─────────────────────────────────────────
+  // ─── Drag & drop with recursive folder/subfolder traversal ───
   const handleDragOver = (e: React.DragEvent) => e.preventDefault();
 
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     triggerHaptic('light');
-    const droppedFiles = Array.from(e.dataTransfer.files || []).filter((f) =>
-      f.type.startsWith('image/') || /\.(jpe?g|png|webp|bmp|gif|tiff?)$/i.test(f.name)
-    );
-    if (droppedFiles.length > 0) {
-      await handleFilesUpload(droppedFiles);
+
+    let extractedFiles: File[] = [];
+    const items = e.dataTransfer.items;
+
+    if (items && items.length > 0 && typeof (items[0] as any).webkitGetAsEntry === 'function') {
+      extractedFiles = await getAllFilesFromDataTransfer(items);
+    } else if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      extractedFiles = Array.from(e.dataTransfer.files);
+    }
+
+    if (extractedFiles.length > 0) {
+      await handleFilesUpload(extractedFiles);
     }
   };
 
@@ -395,7 +660,39 @@ export function ReceiptScanner() {
         return;
       }
 
-      setIsProcessing(true);
+      setEnhancingIndexes((prev) => {
+        const next = new Set(prev);
+        next.add(index);
+        return next;
+      });
+
+      if (isMockAi) {
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        const targetReceipt = receipts[index];
+        applyApiResult(index, {
+          merchant: targetReceipt?.merchantName || 'Mock Tesco Extra (Dev Test)',
+          date: targetReceipt?.receiptDate || new Date().toISOString().split('T')[0],
+          subtotal: targetReceipt?.subtotal ?? 12.50,
+          vat: targetReceipt?.vatAmount ?? 2.50,
+          serviceCharge: targetReceipt?.serviceCharge ?? 0,
+          total: targetReceipt?.totalAmount ?? 15.00,
+          confidence: 98,
+          status: 'verified',
+          lineItems: targetReceipt?.lineItems?.length
+            ? targetReceipt.lineItems.map((it) => ({ ...it, confidence: 98 }))
+            : [
+                { description: 'Mock AI Item 1', quantity: 1, unitPrice: 7.50, totalPrice: 7.50, category: null, confidence: 98 },
+                { description: 'Mock AI Item 2', quantity: 2, unitPrice: 3.75, totalPrice: 7.50, category: null, confidence: 98 },
+              ],
+        });
+        setEnhancingIndexes((prev) => {
+          const next = new Set(prev);
+          next.delete(index);
+          return next;
+        });
+        triggerHaptic('success');
+        return;
+      }
 
       try {
         // Use the stored file blob for this receipt if available,
@@ -407,7 +704,11 @@ export function ReceiptScanner() {
         }
         if (!imageToUpload || imageToUpload.size === 0) {
           alert('Could not locate the image for this receipt. Please re-upload.');
-          setIsProcessing(false);
+          setEnhancingIndexes((prev) => {
+            const next = new Set(prev);
+            next.delete(index);
+            return next;
+          });
           return;
         }
         const image = imageToUpload;
@@ -454,7 +755,11 @@ export function ReceiptScanner() {
         console.error('Cloud AI error:', err);
         triggerHaptic('error');
       } finally {
-        setIsProcessing(false);
+        setEnhancingIndexes((prev) => {
+          const next = new Set(prev);
+          next.delete(index);
+          return next;
+        });
       }
     },
     [userEmail, deviceId, authToken, applyApiResult]
@@ -521,9 +826,9 @@ export function ReceiptScanner() {
     }
   };
 
-  // ─── Render ───────────────────────────────────────────────
   return (
-    <div className="flex flex-col flex-1 w-full max-w-5xl mx-auto px-4 py-6 pb-32">
+    <>
+<div className="flex flex-col flex-1 w-full max-w-5xl mx-auto px-4 py-6 pb-32">
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
         <div>
@@ -564,12 +869,49 @@ export function ReceiptScanner() {
             </button>
           </div>
 
+          {/* Dev Mock AI Toggle (Restricted to Test Accounts & Dev Sessions) */}
+          {userEmail && ['admin@no-overtime.com', 'test@no-overtime.com', 'developer@no-overtime.com'].includes(userEmail.toLowerCase()) && (
+            <div className="flex items-center gap-2 px-2" title="Test Account Dev Mode: Simulate Cloud AI parsing without spending any OpenAI API credits">
+              <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400">🧪 Mock AI</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isMockAi}
+                onClick={() => {
+                  setIsMockAi((prev) => !prev);
+                  triggerHaptic('light');
+                }}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-purple-600 focus:ring-offset-2 ${
+                  isMockAi ? 'bg-purple-600' : 'bg-zinc-300 dark:bg-zinc-700'
+                }`}
+              >
+                <span
+                  aria-hidden="true"
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    isMockAi ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+          )}
+
           {userEmail ? (
-            <div className="flex items-center gap-2 rounded-full bg-emerald-100 dark:bg-emerald-950/60 px-4 py-1.5 border border-emerald-300 dark:border-emerald-800">
-              <span className="h-2.5 w-2.5 rounded-full bg-emerald-600" />
-              <span className="text-xs md:text-sm font-bold text-emerald-900 dark:text-emerald-200">
-                {userEmail}
-              </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic('light');
+                  setIsSettingsOpen(true);
+                }}
+                className="flex items-center gap-2 rounded-full bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 px-4 py-1.5 border border-emerald-300 dark:border-emerald-800 transition active:scale-95"
+                title="Account Settings & GDPR Data Management"
+              >
+                <span className="h-2.5 w-2.5 rounded-full bg-emerald-600" />
+                <span className="text-xs md:text-sm font-bold text-emerald-900 dark:text-emerald-200">
+                  {userEmail}
+                </span>
+                <span className="text-xs text-emerald-700 dark:text-emerald-400">⚙️</span>
+              </button>
             </div>
           ) : (
             <button
@@ -586,65 +928,138 @@ export function ReceiptScanner() {
       <div
         onDragOver={handleDragOver}
         onDrop={handleDrop}
-        className="relative flex flex-col items-center justify-center rounded-3xl border-3 border-dashed border-emerald-500/40 bg-emerald-50/50 dark:bg-emerald-950/20 p-8 text-center transition hover:border-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+        className="relative flex flex-col items-center justify-center rounded-3xl border-3 border-dashed border-emerald-500/40 bg-emerald-50/50 dark:bg-emerald-950/20 p-8 text-center transition hover:border-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 min-h-[350px]"
       >
-        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-600 text-white text-3xl font-bold shadow-lg mb-4">
-          📷
-        </div>
-
-        <h2 className="text-xl md:text-2xl font-black text-foreground mb-1">
-          Drag & Drop Receipts Here
-        </h2>
-        <p className="text-sm md:text-base text-zinc-600 dark:text-zinc-400 mb-6 max-w-md">
-          Drop photos or invoices. Free offline OCR runs instantly in your browser — no signup required!
-        </p>
-
-        {/* OCR progress bar */}
-        {ocrProgress !== null && (
-          <div className="w-full max-w-xs mb-4">
-            <div className="flex justify-between text-xs font-bold text-zinc-500 mb-1">
-              <span>{ocrStatusText || 'Reading document...'}</span>
-              <span>{ocrProgress}%</span>
+        {isUploading ? (
+          <div className="flex flex-col items-center justify-center py-4 w-full animate-in fade-in zoom-in duration-300">
+            <div className="text-4xl mb-4 animate-bounce">
+              {uploadEngine === 'cloud' ? '✨' : '⚡'}
             </div>
-            <div className="h-2 w-full rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
-              <div
-                className="h-full rounded-full bg-emerald-500 transition-all duration-300"
-                style={{ width: `${ocrProgress}%` }}
-              />
+            <h3 className="text-xl md:text-2xl font-black text-foreground mb-2">
+              {uploadEngine === 'cloud' ? 'Processing with Cloud AI' : 'Reading Document'}
+            </h3>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-8 max-w-sm">
+              {ocrStatusText || (uploadEngine === 'cloud' ? 'Cloud AI is analyzing your receipts...' : 'Extracting receipt lines...')}
+            </p>
+            <div className="w-full max-w-xs">
+              <div className="flex justify-between text-xs font-bold text-zinc-500 mb-2">
+                <span>Progress</span>
+                <span>{ocrProgress !== null ? `${ocrProgress}%` : ''}</span>
+              </div>
+              <div className="h-2 w-full rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden relative">
+                {ocrProgress !== null ? (
+                  <div
+                    className="h-full rounded-full bg-emerald-500 transition-all duration-300"
+                    style={{ width: `${ocrProgress}%` }}
+                  />
+                ) : (
+                  <div className="absolute inset-y-0 left-0 bg-emerald-500 rounded-full w-1/3 animate-[progress_1.5s_ease-in-out_infinite]" />
+                )}
+              </div>
             </div>
-          </div>
-        )}
-
-        <div className="flex flex-wrap gap-3 justify-center w-full max-w-md">
-          <label
-            htmlFor="receipt-file-input"
-            onClick={(e) => {
-              triggerHaptic('light');
-              if (Capacitor.isNativePlatform()) {
-                e.preventDefault();
-                handleCameraCapture();
+            <style>{`
+              @keyframes progress {
+                0% { transform: translateX(-100%); }
+                100% { transform: translateX(300%); }
               }
-            }}
-            className={`flex-1 min-w-[200px] h-14 rounded-2xl bg-emerald-600 px-6 text-lg font-bold text-white shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 active:scale-[0.98] transition flex items-center justify-center gap-2 cursor-pointer select-none ${
-              isProcessing ? 'opacity-50 pointer-events-none' : ''
-            }`}
-          >
-            <span>{isProcessing ? '⚡ Processing...' : '📸 Snap or Upload'}</span>
-          </label>
+            `}</style>
+          </div>
+        ) : (
+          <>
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-600 text-white text-3xl font-bold shadow-lg mb-4">
+              📷
+            </div>
 
-          <input
-            id="receipt-file-input"
-            type="file"
-            ref={fileInputRef}
-            onChange={(e) => {
-              const selected = Array.from(e.target.files || []);
-              if (selected.length > 0) handleFilesUpload(selected);
-            }}
-            accept="image/*"
-            multiple
-            className="hidden"
-          />
-        </div>
+            <h2 className="text-xl md:text-2xl font-black text-foreground mb-1">
+              Drag & Drop Receipts Here
+            </h2>
+            <p className="text-sm md:text-base text-zinc-600 dark:text-zinc-400 mb-6 max-w-md">
+              Drop photos or invoices. Free offline OCR runs instantly in your browser — no signup required!
+            </p>
+
+            {/* Pre-Upload Engine Selector Toggle */}
+            <div className="mb-5 flex flex-col items-center">
+              <div className="inline-flex p-1 bg-zinc-200/70 dark:bg-zinc-800/80 rounded-2xl border border-zinc-300 dark:border-zinc-700 shadow-inner">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUploadEngine('offline');
+                    triggerHaptic('light');
+                  }}
+                  className={`px-3.5 py-2 rounded-xl text-xs md:text-sm font-bold transition flex items-center gap-1.5 ${
+                    uploadEngine === 'offline'
+                      ? 'bg-white dark:bg-zinc-900 text-foreground shadow-sm'
+                      : 'text-zinc-600 dark:text-zinc-400 hover:text-foreground'
+                  }`}
+                >
+                  <span>⚡ Free Offline OCR</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUploadEngine('cloud');
+                    triggerHaptic('light');
+                  }}
+                  className={`px-3.5 py-2 rounded-xl text-xs md:text-sm font-bold transition flex items-center gap-1.5 ${
+                    uploadEngine === 'cloud'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-zinc-600 dark:text-zinc-400 hover:text-foreground'
+                  }`}
+                >
+                  <span>✨ Cloud AI</span>
+                  <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded-full bg-white/20 text-white">
+                    Fast
+                  </span>
+                </button>
+              </div>
+              <span className="mt-1.5 text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
+                {uploadEngine === 'cloud'
+                  ? '✨ Bypasses slow mobile OCR • Direct high-accuracy Cloud AI parsing'
+                  : '⚡ Runs directly on your device CPU • 100% private & free'}
+              </span>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3 justify-center w-full max-w-md">
+              <div
+                onClick={() => {
+                  if (Capacitor.isNativePlatform()) {
+                    handleCameraCapture();
+                  }
+                }}
+                className="relative flex-1 min-w-[180px] h-14 rounded-2xl bg-emerald-600 px-5 text-base md:text-lg font-bold text-white shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 active:scale-[0.98] transition flex items-center justify-center gap-2 select-none overflow-hidden cursor-pointer"
+              >
+                <span>📸 Snap Photo</span>
+                {!Capacitor.isNativePlatform() && (
+                  <input
+                    type="file"
+                    accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
+                    capture="environment"
+                    onChange={(e) => {
+                      const files = e.target.files ? Array.from(e.target.files) : [];
+                      if (files.length > 0) handleFilesUpload(files);
+                    }}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                  />
+                )}
+              </div>
+
+              <div className="relative flex-1 min-w-[180px] h-14 rounded-2xl bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 px-5 text-base md:text-lg font-bold shadow-lg active:scale-[0.98] transition flex items-center justify-center gap-2 select-none overflow-hidden"
+              >
+                <span>📁 Choose Files</span>
+                <input
+                  type="file"
+                  accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
+                  multiple
+                  onChange={(e) => {
+                    const files = e.target.files ? Array.from(e.target.files) : [];
+                    if (files.length > 0) handleFilesUpload(files);
+                  }}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                />
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Receipt Cards */}
@@ -673,7 +1088,7 @@ export function ReceiptScanner() {
               key={idx}
               receipt={r}
               index={idx}
-              isProcessing={isProcessing}
+              isProcessing={enhancingIndexes.has(idx)}
               scanMode={scanMode}
               onUpdate={handleUpdateReceipt}
               onDelete={handleDeleteReceipt}
@@ -693,16 +1108,139 @@ export function ReceiptScanner() {
             </p>
           </div>
           <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
-            {/* Option 1: Immediate Direct Download (Zero login required) */}
-            <button
-              type="button"
-              onClick={handleDirectDownload}
-              disabled={receipts.length === 0}
-              className="h-14 w-full sm:w-auto sm:min-w-[240px] rounded-2xl bg-emerald-600 px-6 text-base md:text-lg font-black text-white shadow-xl shadow-emerald-600/25 hover:bg-emerald-700 active:scale-[0.98] transition disabled:opacity-40 disabled:pointer-events-none flex items-center justify-center gap-2"
-              title="Instantly download .xlsx file directly to your device"
-            >
-              <span>📥 Download Excel</span>
-            </button>
+            {/* Option 1: Split Download Button: Default Excel Download + Dropdown Arrow for Formats */}
+            <div className="relative inline-flex items-center w-full sm:w-auto shadow-xl shadow-emerald-600/20" ref={exportMenuRef}>
+              {/* Main Default Action: Download Excel */}
+              <button
+                type="button"
+                onClick={handleDirectDownload}
+                disabled={receipts.length === 0}
+                className="h-14 flex-1 sm:flex-initial sm:min-w-[190px] rounded-l-2xl bg-emerald-600 pl-6 pr-4 text-base md:text-lg font-black text-white hover:bg-emerald-700 active:scale-[0.98] transition disabled:opacity-40 disabled:pointer-events-none flex items-center justify-center gap-2 border-r border-emerald-700/50"
+                title="Instantly download .xlsx file directly to your device"
+              >
+                <span>📥 Download Excel</span>
+              </button>
+
+              {/* Split Dropdown Arrow Toggle Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (receipts.length === 0) {
+                    alert('Please scan or load at least one receipt first!');
+                    return;
+                  }
+                  setIsExportMenuOpen((prev) => !prev);
+                  triggerHaptic('light');
+                }}
+                disabled={receipts.length === 0}
+                className="h-14 px-3.5 rounded-r-2xl bg-emerald-600 hover:bg-emerald-700 text-white transition disabled:opacity-40 disabled:pointer-events-none flex items-center justify-center border-l border-emerald-500/30"
+                title="Choose export format (Excel, PDF, CSV)"
+              >
+                <span className={`text-xs transition-transform duration-200 ${isExportMenuOpen ? 'rotate-180' : ''}`}>
+                  ▼
+                </span>
+              </button>
+
+              {/* Export Formats Dropdown Menu Popup */}
+              {isExportMenuOpen && (
+                <div className="absolute bottom-full mb-3 right-0 w-64 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2 shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-150">
+                  <div className="px-3 py-1.5 text-[11px] font-bold text-zinc-400 uppercase tracking-wider border-b border-zinc-100 dark:border-zinc-800 mb-1">
+                    Select Export Format
+                  </div>
+
+                  {/* Excel (.xlsx) Option */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsExportMenuOpen(false);
+                      handleDirectDownload();
+                    }}
+                    className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition flex items-center justify-between group"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-lg">📊</span>
+                      <div>
+                        <p className="text-sm font-bold text-foreground">Excel Workbook</p>
+                        <p className="text-[11px] text-zinc-500">.xlsx • Includes VAT formulas</p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">Default</span>
+                  </button>
+
+                  {/* PDF (.pdf) Option */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsExportMenuOpen(false);
+                      triggerHaptic('light');
+                      exportReceiptsToPdf(receipts);
+                      triggerHaptic('success');
+                    }}
+                    className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition flex items-center gap-2.5"
+                  >
+                    <span className="text-lg">📄</span>
+                    <div>
+                      <p className="text-sm font-bold text-foreground">PDF Expense Report</p>
+                      <p className="text-[11px] text-zinc-500">.pdf • MTD HMRC Summary</p>
+                    </div>
+                  </button>
+
+                  {/* Word Document (.doc) Option */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsExportMenuOpen(false);
+                      triggerHaptic('light');
+                      exportReceiptsToDocx(receipts);
+                      triggerHaptic('success');
+                    }}
+                    className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition flex items-center gap-2.5"
+                  >
+                    <span className="text-lg">📝</span>
+                    <div>
+                      <p className="text-sm font-bold text-foreground">Word Document</p>
+                      <p className="text-[11px] text-zinc-500">.doc • MS Word &amp; Google Docs</p>
+                    </div>
+                  </button>
+
+                  {/* CSV (.csv) Option */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsExportMenuOpen(false);
+                      triggerHaptic('light');
+                      exportReceiptsToCsv(receipts);
+                      triggerHaptic('success');
+                    }}
+                    className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition flex items-center gap-2.5"
+                  >
+                    <span className="text-lg">📑</span>
+                    <div>
+                      <p className="text-sm font-bold text-foreground">CSV Data Register</p>
+                      <p className="text-[11px] text-zinc-500">.csv • Xero &amp; QuickBooks ready</p>
+                    </div>
+                  </button>
+
+                  {/* Plain Text (.txt) Option */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsExportMenuOpen(false);
+                      triggerHaptic('light');
+                      exportReceiptsToTxt(receipts);
+                      triggerHaptic('success');
+                    }}
+                    className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition flex items-center gap-2.5"
+                  >
+                    <span className="text-lg">📃</span>
+                    <div>
+                      <p className="text-sm font-bold text-foreground">Plain Text Register</p>
+                      <p className="text-[11px] text-zinc-500">.txt • Plain text summary</p>
+                    </div>
+                  </button>
+                </div>
+              )}
+            </div>
 
             {/* Option 2: Email Copy to Self or Accountant */}
             <button
@@ -728,13 +1266,20 @@ export function ReceiptScanner() {
 
       <OtpModal
         isOpen={isOtpOpen}
-        onClose={() => setIsOtpOpen(false)}
+        onClose={() => {
+          setIsOtpOpen(false);
+          pendingCloudFilesRef.current = null;
+        }}
         reason={otpReason}
         onSuccess={(email) => {
           setUserEmail(email);
           if (otpReason === 'export') {
             alert(`Spreadsheet dispatched to ${email}! Downloading local copy now...`);
             exportReceiptsToExcel(receipts);
+          } else if (otpReason === 'cloud_ai' && pendingCloudFilesRef.current?.length) {
+            const filesToRun = pendingCloudFilesRef.current;
+            pendingCloudFilesRef.current = null;
+            processFilesBatchWithCloudAi(filesToRun);
           }
         }}
       />
@@ -745,6 +1290,28 @@ export function ReceiptScanner() {
         scansUsed={quotaInfo.used}
         scansLimit={quotaInfo.limit}
       />
+
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        userEmail={userEmail}
+        scansUsed={quotaInfo.used}
+        scansLimit={quotaInfo.limit}
+        onSignOut={() => {
+          setUserEmail(null);
+          setAuthToken(null);
+        }}
+        onAccountDeleted={() => {
+          setUserEmail(null);
+          setAuthToken(null);
+          setReceipts([]);
+          try {
+            localStorage.removeItem(DRAFT_STORAGE_KEY);
+          } catch {}
+          alert('Your account and all associated UK GDPR financial records have been permanently deleted.');
+        }}
+      />
     </div>
+    </>
   );
 }

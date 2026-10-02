@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { ExportReceiptData } from '@/lib/excel-export';
@@ -268,6 +268,127 @@ export function ReceiptCard({
     };
   }, [showOriginal, imageUrl]);
 
+  const panRef = useRef(pan);
+  panRef.current = pan;
+  const zoomLevelRef = useRef(zoomLevel);
+  zoomLevelRef.current = zoomLevel;
+
+  const touchStateRef = useRef<{
+    mode: 'none' | 'pan' | 'pinch';
+    startX: number;
+    startY: number;
+    startPanX: number;
+    startPanY: number;
+    startDistance: number;
+    startZoom: number;
+    lastTapTime: number;
+  }>({
+    mode: 'none',
+    startX: 0,
+    startY: 0,
+    startPanX: 0,
+    startPanY: 0,
+    startDistance: 0,
+    startZoom: 1,
+    lastTapTime: 0,
+  });
+
+  // Touch gesture handlers for mobile (Pinch-to-zoom & 1-finger pan & double-tap reset)
+  useEffect(() => {
+    const container = viewerContainerRef.current;
+    if (!container) return;
+
+    const getDistance = (t1: Touch, t2: Touch) =>
+      Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 1) {
+        const now = Date.now();
+        if (now - touchStateRef.current.lastTapTime < 300) {
+          resetView();
+          touchStateRef.current.lastTapTime = 0;
+          return;
+        }
+        touchStateRef.current.lastTapTime = now;
+        touchStateRef.current.mode = 'pan';
+        touchStateRef.current.startX = e.touches[0].clientX;
+        touchStateRef.current.startY = e.touches[0].clientY;
+        touchStateRef.current.startPanX = panRef.current.x;
+        touchStateRef.current.startPanY = panRef.current.y;
+        setIsDragging(true);
+      } else if (e.touches.length === 2) {
+        touchStateRef.current.mode = 'pinch';
+        touchStateRef.current.startDistance = getDistance(e.touches[0], e.touches[1]);
+        touchStateRef.current.startZoom = zoomLevelRef.current;
+        touchStateRef.current.startX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        touchStateRef.current.startY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        touchStateRef.current.startPanX = panRef.current.x;
+        touchStateRef.current.startPanY = panRef.current.y;
+        setIsDragging(true);
+      }
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (touchStateRef.current.mode === 'none') return;
+      if (e.cancelable) {
+        e.preventDefault();
+      }
+
+      if (touchStateRef.current.mode === 'pan' && e.touches.length === 1) {
+        const dx = e.touches[0].clientX - touchStateRef.current.startX;
+        const dy = e.touches[0].clientY - touchStateRef.current.startY;
+        setPan({
+          x: touchStateRef.current.startPanX + dx,
+          y: touchStateRef.current.startPanY + dy,
+        });
+      } else if (touchStateRef.current.mode === 'pinch' && e.touches.length === 2) {
+        const dist = getDistance(e.touches[0], e.touches[1]);
+        if (touchStateRef.current.startDistance > 0) {
+          const factor = dist / touchStateRef.current.startDistance;
+          const nextZoom = Math.max(
+            0.5,
+            Math.min(4, Math.round(touchStateRef.current.startZoom * factor * 100) / 100)
+          );
+          setZoomLevel(nextZoom);
+
+          const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+          const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+          const dx = midX - touchStateRef.current.startX;
+          const dy = midY - touchStateRef.current.startY;
+          setPan({
+            x: touchStateRef.current.startPanX + dx,
+            y: touchStateRef.current.startPanY + dy,
+          });
+        }
+      }
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length === 0) {
+        touchStateRef.current.mode = 'none';
+        setIsDragging(false);
+      } else if (e.touches.length === 1) {
+        touchStateRef.current.mode = 'pan';
+        touchStateRef.current.startX = e.touches[0].clientX;
+        touchStateRef.current.startY = e.touches[0].clientY;
+        touchStateRef.current.startPanX = panRef.current.x;
+        touchStateRef.current.startPanY = panRef.current.y;
+      }
+    };
+
+    container.addEventListener('touchstart', handleTouchStart, { passive: false });
+    container.addEventListener('touchmove', handleTouchMove, { passive: false });
+    container.addEventListener('touchend', handleTouchEnd, { passive: false });
+    container.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+
+    return () => {
+      container.removeEventListener('touchstart', handleTouchStart);
+      container.removeEventListener('touchmove', handleTouchMove);
+      container.removeEventListener('touchend', handleTouchEnd);
+      container.removeEventListener('touchcancel', handleTouchEnd);
+    };
+  }, [showOriginal, imageUrl, resetView]);
+
   const r = receipt;
   const userVerified = r.status === 'user_verified';
   const mathValidation = checkReceiptMath(r);
@@ -447,10 +568,31 @@ export function ReceiptCard({
         subtotal: 100,
         serviceCharge: 100,
       },
-      lineItems: (r.lineItems || []).map((item) => ({ ...item, confidence: 100 })),
+      originalConfidence: r.confidence,
+      originalEssentialsConfidence: r.essentialsConfidence,
+      originalFieldConfidence: r.fieldConfidence,
+      originalStatus: r.status,
+      lineItems: (r.lineItems || []).map((item) => ({ ...item, originalConfidence: item.confidence, confidence: 100 })),
       status: 'user_verified',
     });
     triggerHaptic('success');
+  };
+
+  // ─── Revert / Undo Verification ───────────────────────────
+  const handleUnconfirm = () => {
+    const restoredConfidence = r.originalConfidence ?? (r.essentialsConfidence && r.essentialsConfidence < 100 ? r.essentialsConfidence : 80);
+    onUpdate(index, {
+      ...r,
+      confidence: restoredConfidence,
+      essentialsConfidence: r.originalEssentialsConfidence ?? restoredConfidence,
+      fieldConfidence: r.originalFieldConfidence,
+      status: r.originalStatus && r.originalStatus !== 'user_verified' ? r.originalStatus : (restoredConfidence >= 90 ? 'verified' : 'needs_review'),
+      lineItems: (r.lineItems || []).map((item) => ({
+        ...item,
+        confidence: item.originalConfidence ?? item.confidence ?? 80,
+      })),
+    });
+    triggerHaptic('light');
   };
 
   // ─── Delete Card ──────────────────────────────────────────
@@ -533,7 +675,7 @@ export function ReceiptCard({
           ref={viewerContainerRef}
           onMouseDown={handleMouseDown}
           onDoubleClick={resetView}
-          className={`relative overflow-hidden h-[540px] rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-200/50 dark:bg-black/60 flex items-center justify-center select-none ${
+          className={`relative overflow-hidden h-[540px] rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-200/50 dark:bg-black/60 flex items-center justify-center select-none touch-none ${
             isDragging ? 'cursor-grabbing' : 'cursor-grab'
           }`}
           title="Click & drag to pan • Scroll wheel to zoom • Double-click to reset"
@@ -556,7 +698,7 @@ export function ReceiptCard({
 
           {/* Floating Navigation Hint Pill */}
           <div className="absolute bottom-2 left-1/2 -translate-x-1/2 pointer-events-none rounded-full bg-black/65 backdrop-blur-sm px-3 py-1 text-[11px] font-medium text-white/90 shadow">
-            🖱️ Drag to pan • Scroll to zoom • Double-click to reset
+            👆 Drag to pan • Pinch to zoom • Double-tap to reset
           </div>
         </div>
       ) : r.rawText ? (
@@ -573,10 +715,18 @@ export function ReceiptCard({
 
   // ─── Render ───────────────────────────────────────────────
   return (
-    <div className="rounded-3xl border-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 md:p-6 shadow-sm transition hover:shadow-md select-text">
+    <div className="relative overflow-hidden rounded-3xl border-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 md:p-6 shadow-sm transition hover:shadow-md select-text">
+      {/* Individual Card Processing Overlay */}
+      {isProcessing && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white/80 dark:bg-zinc-950/80 backdrop-blur-sm">
+          <div className="text-4xl mb-4 animate-bounce">✨</div>
+          <h3 className="text-lg font-black text-foreground">Enhancing with AI</h3>
+          <p className="text-xs text-zinc-500 font-medium mt-1">Analyzing receipt data...</p>
+        </div>
+      )}
       {/* Top Row: Merchant + Badges + Toggle Original + Delete */}
-      <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-        <div className="flex-1 min-w-0">
+      <div className="flex flex-col sm:flex-row items-start justify-between gap-4 mb-4">
+        <div className="w-full sm:flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <EditableField
               value={r.receiptDate || ''}
@@ -605,7 +755,7 @@ export function ReceiptCard({
               editingField={editingField}
               onStartEdit={setEditingField}
               onCommit={handleFieldCommit}
-              className="text-2xl md:text-3xl font-black text-foreground tracking-tight block"
+              className="text-2xl md:text-3xl font-black text-foreground tracking-tight block truncate"
               inputClassName="text-2xl md:text-3xl w-full max-w-sm"
             />
             <span
@@ -618,7 +768,7 @@ export function ReceiptCard({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center sm:justify-end gap-2 w-full sm:w-auto shrink-0 mt-2 sm:mt-0">
           {/* Toggle View Original Button */}
           <button
             type="button"
@@ -934,7 +1084,7 @@ export function ReceiptCard({
                                 if (e.key === 'Escape') setEditingLineItem(null);
                               }}
                               autoFocus
-                              className="flex-1 bg-white dark:bg-zinc-800 border-2 border-emerald-500 rounded px-2 outline-none"
+                              className="flex-1 min-w-0 w-full bg-white dark:bg-zinc-800 border-2 border-emerald-500 rounded px-2 outline-none"
                             />
                           ) : (
                             <span
@@ -1007,7 +1157,7 @@ export function ReceiptCard({
           {/* Action Buttons Row */}
           <div className="flex flex-wrap gap-2">
             {/* Confirm & Verify */}
-            {!userVerified && (
+            {!userVerified ? (
               <button
                 type="button"
                 onClick={handleConfirmVerify}
@@ -1015,17 +1165,26 @@ export function ReceiptCard({
               >
                 <span>✓ Confirm &amp; Verify</span>
               </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleUnconfirm}
+                className="h-12 rounded-xl border-2 border-amber-600/40 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/50 px-5 text-sm font-bold transition flex items-center justify-center gap-2 shadow-sm"
+                title="Accidentally confirmed? Revert status and scores back to original scan confidence"
+              >
+                <span>↩️ Undo Verification (Revert Scores)</span>
+              </button>
             )}
 
             {/* Cloud AI Enhancement */}
-            {r.confidence < 95 && !userVerified && (
+            {!userVerified && (
               <button
                 type="button"
-                disabled={isProcessing}
+                disabled={isProcessing || r.isAiEnhanced}
                 onClick={() => onEnhanceWithAI(index, r.sourceFile)}
-                className="h-12 rounded-xl border-2 border-emerald-600/30 bg-emerald-50 dark:bg-emerald-950/40 px-5 text-sm font-bold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition flex items-center justify-center gap-2 disabled:opacity-50"
+                className={`h-12 rounded-xl border-2 px-5 text-sm font-bold transition flex items-center justify-center gap-2 ${r.isAiEnhanced ? "border-emerald-200 bg-emerald-50 text-emerald-600/80 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-500/80 cursor-default" : "border-emerald-600/30 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 disabled:opacity-50"}`}
               >
-                <span>✨ Enhance with Cloud AI</span>
+                <span>{r.isAiEnhanced ? "✨ AI Applied" : "✨ Enhance with Cloud AI"}</span>
               </button>
             )}
 
