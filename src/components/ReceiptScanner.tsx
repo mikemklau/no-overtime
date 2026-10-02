@@ -173,6 +173,7 @@ export function ReceiptScanner() {
   const [isUpgradeOpen, setIsUpgradeOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isEngineInfoOpen, setIsEngineInfoOpen] = useState(false);
+  const [confidenceMode, setConfidenceMode] = useState<'percentage' | 'border'>('percentage');
   const [quotaInfo, setQuotaInfo] = useState({ used: 5, limit: 5 });
 
   // Staged files waiting for authentication before Cloud AI batch processing
@@ -1092,12 +1093,39 @@ export function ReceiptScanner() {
             )}
           </div>
           {receipts.length > 0 && (
-            <button
-              onClick={() => { triggerHaptic('light'); setReceipts([]); }}
-              className="text-xs font-bold text-rose-600 hover:underline self-end sm:self-auto"
-            >
-              Clear All
-            </button>
+            <div className="flex items-center gap-3 self-end sm:self-auto">
+              <div className="flex items-center rounded-lg bg-zinc-100 dark:bg-zinc-800 p-0.5 border border-zinc-200 dark:border-zinc-700 shadow-inner">
+                <button
+                  onClick={() => { setConfidenceMode('percentage'); triggerHaptic('light'); }}
+                  className={`px-2 py-1 text-xs font-bold rounded-md transition-all ${confidenceMode === 'percentage' ? 'bg-white dark:bg-zinc-700 shadow-sm text-foreground' : 'text-zinc-500 hover:text-foreground'}`}
+                  title="Show numeric percentage scores"
+                >
+                  %
+                </button>
+                <button
+                  onClick={() => { setConfidenceMode('border'); triggerHaptic('light'); }}
+                  className={`px-2 py-1 flex items-center justify-center rounded-md transition-all ${confidenceMode === 'border' ? 'bg-white dark:bg-zinc-700 shadow-sm text-foreground' : 'text-zinc-500 hover:text-foreground'}`}
+                  title="Show color-coded borders instead of numbers"
+                >
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="1.5" y="1.5" width="11" height="11" rx="2.5" stroke="url(#borderGradient)" strokeWidth="2.5"/>
+                    <defs>
+                      <linearGradient id="borderGradient" x1="1" y1="1" x2="13" y2="13" gradientUnits="userSpaceOnUse">
+                        <stop stopColor="#ef4444"/>
+                        <stop offset="0.5" stopColor="#f59e0b"/>
+                        <stop offset="1" stopColor="#10b981"/>
+                      </linearGradient>
+                    </defs>
+                  </svg>
+                </button>
+              </div>
+              <button
+                onClick={() => { triggerHaptic('light'); setReceipts([]); }}
+                className="text-xs font-bold text-rose-600 hover:underline"
+              >
+                Clear All
+              </button>
+            </div>
           )}
         </div>
 
@@ -1113,6 +1141,7 @@ export function ReceiptScanner() {
               index={idx}
               isProcessing={enhancingIndexes.has(idx)}
               scanMode={scanMode}
+              confidenceMode={confidenceMode}
               onUpdate={handleUpdateReceipt}
               onDelete={handleDeleteReceipt}
               onEnhanceWithAI={handleEnhanceWithAI}

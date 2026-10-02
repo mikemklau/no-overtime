@@ -13,6 +13,7 @@ interface ReceiptCardProps {
   index: number;
   isProcessing: boolean;
   scanMode?: 'essentials' | 'detailed';
+  confidenceMode?: 'percentage' | 'border';
   onUpdate: (index: number, updated: ExportReceiptData) => void;
   onDelete: (index: number) => void;
   onEnhanceWithAI: (index: number, imageFile?: File | Blob) => void;
@@ -35,6 +36,7 @@ function getConfidenceBadge(
       score: 100,
       style:
         'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800',
+      ringClass: 'ring-2 ring-emerald-500/60 dark:ring-emerald-500/50 shadow-lg shadow-emerald-500/10',
     };
   }
 
@@ -46,6 +48,7 @@ function getConfidenceBadge(
       score,
       style:
         'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800',
+      ringClass: 'ring-2 ring-emerald-500/60 dark:ring-emerald-500/50 shadow-lg shadow-emerald-500/10',
     };
   }
   if (score >= 70) {
@@ -54,6 +57,7 @@ function getConfidenceBadge(
       score,
       style:
         'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800',
+      ringClass: 'ring-2 ring-amber-500/70 dark:ring-amber-500/60 shadow-lg shadow-amber-500/10',
     };
   }
   return {
@@ -61,6 +65,7 @@ function getConfidenceBadge(
     score,
     style:
       'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-800',
+    ringClass: 'ring-2 ring-rose-400/80 dark:ring-rose-500/60 shadow-lg shadow-rose-500/10',
   };
 }
 
@@ -164,6 +169,7 @@ export function ReceiptCard({
   index,
   isProcessing,
   scanMode = 'essentials',
+  confidenceMode = 'percentage',
   onUpdate,
   onDelete,
   onEnhanceWithAI,
@@ -715,7 +721,7 @@ export function ReceiptCard({
 
   // ─── Render ───────────────────────────────────────────────
   return (
-    <div className="relative overflow-hidden rounded-3xl border-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 md:p-6 shadow-sm transition hover:shadow-md select-text">
+    <div className={`relative overflow-hidden rounded-3xl border-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 md:p-6 shadow-sm transition hover:shadow-md select-text ${confidenceMode === 'border' ? badge.ringClass : ''}`}>
       {/* Individual Card Processing Overlay */}
       {isProcessing && (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white/80 dark:bg-zinc-950/80 backdrop-blur-sm">
@@ -741,7 +747,7 @@ export function ReceiptCard({
             />
             <span
               style={dateConfStyle.vars}
-              className={`text-[9px] font-medium opacity-60 tabular-nums ${dateConfStyle.className}`}
+              className={`text-[9px] font-medium opacity-60 tabular-nums ${dateConfStyle.className} ${confidenceMode === 'border' ? 'hidden' : ''}`}
               title={`Date confidence: ${dateConf}%`}
             >
               {dateConf}%
@@ -760,7 +766,7 @@ export function ReceiptCard({
             />
             <span
               style={merchantConfStyle.vars}
-              className={`text-[10px] font-medium opacity-60 tabular-nums self-center ${merchantConfStyle.className}`}
+              className={`text-[10px] font-medium opacity-60 tabular-nums self-center ${merchantConfStyle.className} ${confidenceMode === 'border' ? 'hidden' : ''}`}
               title={`Merchant confidence: ${merchantConf}%`}
             >
               {merchantConf}%
@@ -775,7 +781,7 @@ export function ReceiptCard({
             <span
               className={`inline-flex items-center rounded-xl border px-3 py-1 text-xs md:text-sm font-black tracking-wide transition group-hover:shadow-sm ${badge.style}`}
             >
-              {badge.text} ({badge.score}%)
+              {badge.text} {confidenceMode === 'percentage' && `(${badge.score}%)`}
             </span>
             
           </div>
@@ -816,7 +822,7 @@ export function ReceiptCard({
                 </span>
                 <span
                   style={totalConfStyle.vars}
-                  className={`text-[9px] font-medium opacity-60 tabular-nums ${totalConfStyle.className}`}
+                  className={`text-[9px] font-medium opacity-60 tabular-nums ${totalConfStyle.className} ${confidenceMode === 'border' ? 'hidden' : ''}`}
                   title={`Total confidence: ${totalConf}%`}
                 >
                   {totalConf}%
@@ -850,7 +856,7 @@ export function ReceiptCard({
                 </span>
                 <span
                   style={vatConfStyle.vars}
-                  className={`text-[9px] font-medium opacity-60 tabular-nums ${vatConfStyle.className}`}
+                  className={`text-[9px] font-medium opacity-60 tabular-nums ${vatConfStyle.className} ${confidenceMode === 'border' ? 'hidden' : ''}`}
                   title={`VAT confidence: ${vatConf}%`}
                 >
                   {vatConf}%
@@ -884,7 +890,7 @@ export function ReceiptCard({
                 </span>
                 <span
                   style={subtotalConfStyle.vars}
-                  className={`text-[9px] font-medium opacity-60 tabular-nums ${subtotalConfStyle.className}`}
+                  className={`text-[9px] font-medium opacity-60 tabular-nums ${subtotalConfStyle.className} ${confidenceMode === 'border' ? 'hidden' : ''}`}
                   title={`Subtotal confidence: ${subtotalConf}%`}
                 >
                   {subtotalConf}%
@@ -918,7 +924,7 @@ export function ReceiptCard({
                 </span>
                 <span
                   style={serviceChargeConfStyle.vars}
-                  className={`text-[9px] font-medium opacity-60 tabular-nums ${serviceChargeConfStyle.className}`}
+                  className={`text-[9px] font-medium opacity-60 tabular-nums ${serviceChargeConfStyle.className} ${confidenceMode === 'border' ? 'hidden' : ''}`}
                   title={`Service charge confidence: ${serviceChargeConf}%`}
                 >
                   {serviceChargeConf}%
@@ -1111,7 +1117,7 @@ export function ReceiptCard({
                           {/* Discreet Color-Coded Confidence Percentage */}
                           <span
                             style={itemConfStyle.vars}
-                            className={`text-[9px] font-medium opacity-60 tabular-nums shrink-0 ml-1 ${itemConfStyle.className}`}
+                            className={`text-[9px] font-medium opacity-60 tabular-nums shrink-0 ml-1 ${itemConfStyle.className} ${confidenceMode === 'border' ? 'hidden' : ''}`}
                             title={`Item confidence: ${itemScore}%`}
                           >
                             {itemScore}%
