@@ -831,7 +831,7 @@ export function ReceiptScanner() {
 
   return (
     <>
-<div className="flex flex-col flex-1 w-full max-w-5xl mx-auto px-4 py-6 pb-32">
+<div className="flex flex-col flex-1 w-full max-w-5xl mx-auto px-4 py-6 pb-56 md:pb-36">
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
         <div>
