@@ -1,0 +1,63 @@
+PROMPT 1: Project Initialization & Native Feel
+Please read MASTER_SPEC.md. Initialize a Next.js 15 App Router project with Tailwind CSS. Configure it for static HTML export (output: 'export') so it works with Capacitor. Install Capacitor core, Camera, Device, and Haptics plugins. Add global CSS rules to prevent web quirks (-webkit-tap-highlight-color: transparent and user-select: none). Ensure the foundation builds without errors before we move on.
+
+PROMPT 2: GDPR Database & Auth Schema
+Now let's build the backend. Create a Supabase SQL migration for our schema based on the requirements in MASTER_SPEC.md.
+1. Create a profiles table tracking subscription_tier ('free'/'pro') and ai_scans_used (default 0).
+2. Create a device_usage table to track AI scans per physical device ID.
+3. Create a receipts table with standard UK fields (Date, Merchant, Subtotal, VAT_amount, Total, Confidence_Score).
+4. Add Row-Level Security (RLS) policies so users can only access their own data.
+5. Create a PRIVATE Storage Bucket for receipt images.
+6. Set up a cascading delete trigger for GDPR compliance (deleting a profile deletes all their receipts). Install @supabase/ssr.
+
+PROMPT 3: The 'Show the Magic' API Route
+Create the Next.js API route /api/process-receipt.
+1. Check if the user is authenticated via Supabase or if a deviceId is provided in the payload.
+2. If they request Cloud AI but aren't logged in (and have no valid device ID), return a 401 asking them to log in to claim their 5 free scans.
+3. If logged in or using a device ID, check their profiles or device_usage row. If they are on the 'free' tier and ai_scans_used >= 5, return a 403 QUOTA_EXCEEDED.
+4. If allowed, pass the image to the receipt-to-json package, increment their scan counter, save the JSON to the database, and return the data.
+
+PROMPT 4: Boomer-Proof Verification & OTP Paywall
+Build the Receipt Verification UI using Tailwind CSS.
+1. Build a drag-and-drop zone that instantly parses receipts.
+2. Display the parsed list with massive text and color confidence badges (Green, Yellow, Red).
+3. If they click 'Enhance with Cloud AI' or 'Export' while logged out, pop up a clean Supabase Email OTP login modal.
+4. If they are logged in but the API returns 403 QUOTA_EXCEEDED, pop up an 'Upgrade to Premium' modal.
+5. Add @capacitor/haptics to fire whenever a scan finishes or fails.
+
+PROMPT 5: Excel Export Engine
+Install exceljs and file-saver. Add a large, sticky 'Download Excel Spreadsheet' button at the bottom of the Verification UI. When clicked (and the user is logged in via OTP), generate a multi-tab .xlsx workbook featuring a Summary tab, Line Items tab, and a UK 20% VAT Reclaim tab. Freeze the top headers and trigger a local file download.
+
+PROMPT 6: Human-in-the-Loop Manual Editing & Field Corrections
+Upgrade the Receipt Verification UI to support inline manual editing and human-in-the-loop corrections:
+1. Allow users to directly edit or click-to-edit misread fields on any receipt card: Merchant Name, Receipt Date (with a date picker or formatted text input), Grand Total (GBP), UK 20% VAT, Net Subtotal, and individual Line Items (description, quantity, price).
+2. Add an 'Add Line Item' and 'Delete Line Item' button within each card for receipts where OCR missed items.
+3. Automatically recalculate Net Subtotal and 20% VAT when the Grand Total or line items are changed, but allow manual overrides for non-standard VAT items (e.g. zero-rated groceries or hospitality service charges).
+4. Provide a clear 'Confirm & Verify' (or checkmark) action on cards flagged with 'Needs Attention' or 'Check Total'. Once confirmed/edited by the user, immediately elevate the badge to '✓ User Verified' (100% Green).
+5. Ensure all edits update the in-memory receipts state so the Excel Export Engine exports the corrected, verified data rather than the raw OCR output. If the user is logged in, sync edits back to the Supabase receipts table.
+6. Add an individual receipt card delete action with @capacitor/haptics confirmation so users can discard duplicate or invalid scans.
+
+PROMPT 7: Replacing Mock Data with Real OCR & OpenAI
+The app currently uses mock data for receipt processing. Let's wire up the real engines.
+1. On the client side (and mobile), integrate 'tesseract.js' to handle the free, offline OCR scanning. Extract the text and pass it to our local 'receipt-to-json' formatting logic.
+2. In the Next.js API route (/api/process-receipt), integrate the official 'openai' SDK. When the 'cloud' mode is triggered, use the gpt-4o-mini vision capabilities to extract Date, Merchant, Subtotal, VAT, Total, and Line Items. 
+3. Ensure the OpenAI output adheres strictly to the UK formatting rules (DD/MM/YYYY, GBP) before inserting it into the Supabase 'receipts' table.
+4. Remove all hardcoded mock responses so the UI reflects real database insertions and real confidence scores.
+
+PROMPT 8: Stripe Integration & Pro Plan Upgrades
+Now we need to handle monetization so users can upgrade when they hit their 5-scan limit. 
+1. Install 'stripe' and '@stripe/stripe-js'.
+2. Create a Next.js API route (/api/checkout) that generates a Stripe Checkout session for an £8/month "Pro Plan".
+3. Create a Stripe Webhook route (/api/webhooks/stripe) that listens for 'checkout.session.completed' and 'invoice.payment_succeeded'. 
+4. When payment succeeds, update the user's Supabase 'profiles' row: set 'subscription_tier' to 'pro' and increase their 'ai_scans_limit' to 500 (our fair-use limit). 
+5. Link the "Upgrade to Premium" button in our paywall modal to the /api/checkout route.
+
+PROMPT 9: Capacitor Mobile Hardware & Final Polish
+Let's finish the native mobile experience so this works flawlessly on a phone.
+1. Update the upload component to check if it's running natively via Capacitor. If it is, bypass the standard web file picker and trigger the '@capacitor/camera' plugin (Camera.getPhoto) so users can snap receipts directly.
+2. Ensure you handle Android/iOS camera permissions gracefully. 
+3. Wire the "Delete Account" button in the settings to fully delete the Supabase Auth user, triggering our cascading database cleanup.
+4. Do a final pass on the UI to ensure the 'exceljs' export button correctly bundles the database rows into a downloadable file on both web and mobile platforms.
+
+REMINDER / TODO:
+- Remember to deal with instructional details and payment gateway testing (e.g., Stripe sandbox testing, test cards, and user instructional flows).
