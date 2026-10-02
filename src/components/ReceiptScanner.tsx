@@ -1080,14 +1080,21 @@ export function ReceiptScanner() {
 
       {/* Receipt Cards */}
       <div className="mt-8 space-y-4">
-        <div className="flex justify-between items-center px-1">
-          <h2 className="text-lg md:text-xl font-black text-foreground">
-            Scanned Receipts ({receipts.length})
-          </h2>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 px-1">
+          <div>
+            <h2 className="text-lg md:text-xl font-black text-foreground">
+              Scanned Receipts ({receipts.length})
+            </h2>
+            {receipts.length > 0 && (
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 font-medium mt-0.5 flex items-center gap-1">
+                <span>💡 Click or tap any merchant, date, or amount to edit details directly.</span>
+              </p>
+            )}
+          </div>
           {receipts.length > 0 && (
             <button
               onClick={() => { triggerHaptic('light'); setReceipts([]); }}
-              className="text-xs font-bold text-rose-600 hover:underline"
+              className="text-xs font-bold text-rose-600 hover:underline self-end sm:self-auto"
             >
               Clear All
             </button>
